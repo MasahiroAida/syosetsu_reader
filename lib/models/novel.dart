@@ -1,14 +1,38 @@
-class Novel {
-  final String id;
-  final String title;
-  final String author;
-  final String? coverUrl;
-  final int lastReadChapter;
-  final int unreadChapterCount;
-  final DateTime addedAt;
-  final String? summary;
-  final String? keyword;
-  final int? totalChapters;
+import 'package:hive/hive.dart';
+
+part 'novel.g.dart';
+
+@HiveType(typeId: 0)
+class Novel extends HiveObject {
+  @HiveField(0)
+  String id;
+  
+  @HiveField(1)
+  String title;
+  
+  @HiveField(2)
+  String author;
+  
+  @HiveField(3)
+  String? coverUrl;
+  
+  @HiveField(4)
+  int lastReadChapter;
+  
+  @HiveField(5)
+  int unreadChapterCount;
+  
+  @HiveField(6)
+  DateTime addedAt;
+  
+  @HiveField(7)
+  String? summary;
+  
+  @HiveField(8)
+  String? keyword;
+  
+  @HiveField(9)
+  int? totalChapters;
 
   Novel({
     required this.id,
@@ -23,33 +47,11 @@ class Novel {
     this.totalChapters,
   });
 
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'title': title,
-      'author': author,
-      'cover_url': coverUrl,
-      'last_read_chapter': lastReadChapter,
-      'unread_chapter_count': unreadChapterCount,
-      'added_at': addedAt.millisecondsSinceEpoch,
-      'summary': summary,
-      'keyword': keyword,
-      'total_chapters': totalChapters,
-    };
-  }
+  String get displayTitle =>
+      title.length > 30 ? '${title.substring(0, 30)}...' : title;
 
-  factory Novel.fromMap(Map<String, dynamic> map) {
-    return Novel(
-      id: map['id'],
-      title: map['title'],
-      author: map['author'],
-      coverUrl: map['cover_url'],
-      lastReadChapter: map['last_read_chapter'] ?? 0,
-      unreadChapterCount: map['unread_chapter_count'] ?? 0,
-      addedAt: DateTime.fromMillisecondsSinceEpoch(map['added_at']),
-      summary: map['summary'],
-      keyword: map['keyword'],
-      totalChapters: map['total_chapters'],
-    );
+  double get readingProgress {
+    if (totalChapters == null || totalChapters == 0) return 0.0;
+    return lastReadChapter / totalChapters!;
   }
 }

@@ -45,7 +45,8 @@ class WebViewViewModel extends ChangeNotifier {
       // なろうのURL形式に対応
       // https://ncode.syosetu.com/n9893km/ または
       // https://ncode.syosetu.com/n9893km/1/ など
-      final regex = RegExp(r'https://ncode\.syosetu\.com/([a-zA-Z0-9]+)/?');
+      final regex =
+          RegExp(r'https://ncode\.syosetu\.com/([a-zA-Z0-9]+)/?.*');
       final match = regex.firstMatch(url);
       
       if (match != null) {
@@ -260,7 +261,8 @@ class WebViewViewModel extends ChangeNotifier {
   bool isNovelContentUrl(String url) {
     try {
       // なろうの小説ページかどうかチェック
-      final novelRegex = RegExp(r'https://ncode\.syosetu\.com/([a-zA-Z0-9]+)(/[0-9]+)?/?$');
+      final novelRegex =
+          RegExp(r'https://ncode\.syosetu\.com/([a-zA-Z0-9]+)(/[0-9]+)?/?.*');
       return novelRegex.hasMatch(url);
     } catch (e) {
       print('小説URL判定エラー: $e');
@@ -285,7 +287,8 @@ class WebViewViewModel extends ChangeNotifier {
   /// URLから章番号を抽出（プライベートメソッドの代替）
   int _extractChapterFromUrl(String url) {
     try {
-      final regex = RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?$');
+      final regex =
+          RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
       final match = regex.firstMatch(url);
       
       if (match != null) {
@@ -431,7 +434,8 @@ class WebViewViewModel extends ChangeNotifier {
 
   /// URLから小説種別を判定するヘルパーメソッド
   bool isSerialNovelFromUrl(String url) {
-    final serialRegex = RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?$');
+    final serialRegex =
+        RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
     return serialRegex.hasMatch(url);
   }
 
@@ -603,7 +607,8 @@ class WebViewViewModel extends ChangeNotifier {
     try {
       // URLから章番号を抽出を試行
       if (isSerialNovelFromUrl(currentUrl)) {
-        final regex = RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?$');
+        final regex =
+            RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
         final match = regex.firstMatch(currentUrl);
         if (match != null) {
           return int.tryParse(match.group(2)!) ?? 1;

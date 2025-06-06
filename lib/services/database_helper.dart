@@ -147,14 +147,15 @@ class DatabaseHelper {
 
   bool isSerialNovelFromUrl(String url) {
     final serialRegex =
-        RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?');
+        RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
     return serialRegex.hasMatch(url);
   }
 
   int extractChapterFromUrl(String url) {
     if (!isSerialNovelFromUrl(url)) return 0;
 
-    final regex = RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?');
+    final regex =
+        RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
     final match = regex.firstMatch(url);
 
     if (match != null) {

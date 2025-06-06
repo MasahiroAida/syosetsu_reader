@@ -74,7 +74,8 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   }
 
   bool _isSerialNovelFromUrl(String url) {
-    final serialRegex = RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?$');
+    final serialRegex =
+        RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
     return serialRegex.hasMatch(url);
   }
 
@@ -93,7 +94,8 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   int _extractChapterFromUrl(String url) {
     if (!_isSerialNovel) return 0; // 目次/短編の場合は章番号なし
     
-    final regex = RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?$');
+    final regex =
+        RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
     final match = regex.firstMatch(url);
     
     if (match != null) {

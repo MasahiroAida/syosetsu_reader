@@ -562,7 +562,19 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
 
     try {
       print('読書位置保存開始...');
-      
+
+      // 現在表示中のURLから章番号を再取得
+      if (_currentUrl != null) {
+        if (_isSerialNovelFromUrl(_currentUrl!)) {
+          final chapterFromUrl = _extractChapterFromUrl(_currentUrl!);
+          if (chapterFromUrl > 0) {
+            _currentChapter = chapterFromUrl;
+          }
+        } else {
+          _currentChapter = 0;
+        }
+      }
+
       // タイムアウト付きでスクロール位置を取得
       final currentScrollPosition = await _getCurrentScrollPositionWithTimeout();
       print('取得したスクロール位置: $currentScrollPosition');

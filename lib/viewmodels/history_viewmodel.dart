@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:async';
+import 'package:hive/hive.dart';
 import '../models/reading_history.dart';
 import '../services/database_helper.dart';
 
@@ -12,8 +14,18 @@ class HistoryViewModel extends ChangeNotifier {
   bool _isUpdatingFromApi = false;
   bool _isDisposed = false;
   DateTime? _lastApiUpdateTime; // 最後のAPI更新時刻
-  
+  StreamSubscription? _historySubscription;
+
   static const Duration _apiCooldownDuration = Duration(seconds: 30); // クールタイム
+
+  HistoryViewModel() {
+    _historySubscription =
+        Hive.box<ReadingHistory>(DatabaseHelper.historyBoxName).watch().listen((_) async {
+      if (_isDisposed) return;
+      _history = await _dbHelper.getAllReadingHistory();
+      _safeNotifyListeners();
+    });
+  }
 
   List<ReadingHistory> get history => _history;
   bool get isLoading => _isLoading;
@@ -35,6 +47,7 @@ class HistoryViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    _historySubscription?.cancel();
     _isDisposed = true;
     super.dispose();
   }

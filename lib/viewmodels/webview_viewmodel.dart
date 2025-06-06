@@ -8,6 +8,9 @@ import '../services/database_helper.dart';
 
 class WebViewViewModel extends ChangeNotifier {
   final DatabaseHelper _dbHelper = DatabaseHelper();
+
+  /// APIから取得した小説データをキャッシュする
+  final Map<String, Map<String, dynamic>> _novelDetailsCache = {};
   
   bool _isLoading = true;
   bool _canGoBack = false;
@@ -59,26 +62,33 @@ class WebViewViewModel extends ChangeNotifier {
   /// APIから小説詳細情報を取得
   Future<Map<String, dynamic>?> fetchNovelDetails(String ncode) async {
     if (ncode.isEmpty) return null;
-    
+
+    // キャッシュがあればそれを返す
+    if (_novelDetailsCache.containsKey(ncode)) {
+      _novelDetails = _novelDetailsCache[ncode];
+      return _novelDetails;
+    }
+
     try {
       _isLoadingNovelDetails = true;
       notifyListeners();
 
       final apiUrl = 'https://api.syosetu.com/novelapi/api?out=json&ncode=$ncode';
       print('小説詳細API呼び出し: $apiUrl');
-      
+
       final response = await http.get(Uri.parse(apiUrl));
-      
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        
+
         if (data is List && data.length > 1) {
           // 最初の要素はallcountなので、2番目の要素が小説データ
           final novelData = data[1] as Map<String, dynamic>;
-          
+
           _novelDetails = novelData;
+          _novelDetailsCache[ncode] = novelData; // キャッシュに保存
           print('小説詳細取得成功: ${novelData['title']}');
-          
+
           return novelData;
         } else {
           print('小説データが見つかりません: $ncode');

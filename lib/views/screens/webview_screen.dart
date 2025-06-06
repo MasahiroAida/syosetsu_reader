@@ -348,21 +348,11 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   }
 
   Future<void> _updateChapterFromUrl(String url) async {
-    // URLから小説の種類を判定（APIから既に取得済みの場合はスキップ）
-    if (_novelDetails == null) {
-      final wasSerialNovel = _isSerialNovel;
-      _isSerialNovel = _isSerialNovelFromUrl(url);
-      
-      // 小説の種類が変わった場合の処理
-      if (wasSerialNovel != _isSerialNovel) {
-        print('小説種類が変更されました: ${_isSerialNovel ? "連載" : "目次/短編"}');
-      }
-    }
-
+    // 小説種別はAPIから取得した情報を使用
     if (_isSerialNovel) {
       // 連載小説の場合：章番号を抽出
       final chapterFromUrl = _extractChapterFromUrl(url);
-      
+
       if (chapterFromUrl > 0 && chapterFromUrl != _currentChapter) {
         print('連載小説 - チャプター更新: $_currentChapter -> $chapterFromUrl');
         _currentChapter = chapterFromUrl;

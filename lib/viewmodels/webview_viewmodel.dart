@@ -224,6 +224,7 @@ class WebViewViewModel extends ChangeNotifier {
           lastViewed: DateTime.now(), // 常に現在時刻で更新
           url: history.url,
           scrollPosition: history.scrollPosition,
+          isSerialNovel: isSerialNovel(novelData),
         );
       } else {
         // API情報がない場合も最終閲覧時刻は更新
@@ -237,6 +238,7 @@ class WebViewViewModel extends ChangeNotifier {
           lastViewed: DateTime.now(),
           url: history.url,
           scrollPosition: history.scrollPosition,
+          isSerialNovel: history.isSerialNovel,
         );
       }
       

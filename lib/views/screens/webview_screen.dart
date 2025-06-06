@@ -252,6 +252,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
         lastViewed: DateTime.now(),
         url: url,
         scrollPosition: currentScrollPosition,
+        isSerialNovel: _isSerialNovel,
       );
       
       await _viewModel.addToHistory(history, novelData: _novelDetails);
@@ -534,6 +535,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
       lastViewed: DateTime.now(),
       url: currentUrl,
       scrollPosition: currentScrollPosition,
+      isSerialNovel: _isSerialNovel,
     );
     
     await _viewModel.addToHistory(history, novelData: _novelDetails);

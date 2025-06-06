@@ -309,7 +309,7 @@ class HistoryTabState extends State<HistoryTab>
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    item.currentChapter > 0 
+                    item.isSerialNovel && item.currentChapter > 0
                         ? '第${item.currentChapter}話まで読了'
                         : '目次/短編',
                     style: const TextStyle(
@@ -635,8 +635,8 @@ class HistoryTabState extends State<HistoryTab>
               mainAxisSize: MainAxisSize.min,
               children: [
                 _buildInfoRow('作者', item.author),
-                _buildInfoRow('現在の章', item.currentChapter > 0 
-                    ? '第${item.currentChapter}話' 
+                _buildInfoRow('現在の章', item.isSerialNovel && item.currentChapter > 0
+                    ? '第${item.currentChapter}話'
                     : '目次/短編'),
                 if (item.totalChapters > 0)
                   _buildInfoRow('総章数', '${item.totalChapters}話'),

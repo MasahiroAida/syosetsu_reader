@@ -185,13 +185,15 @@ class DatabaseHelper {
   }
 
   Future<void> updateReadingHistoryInfo(
-      String novelId, String title, String author, int totalChapters) async {
+      String novelId, String title, String author, int totalChapters,
+      {bool? isSerialNovel}) async {
     final history = await getReadingHistoryByNovelId(novelId);
     if (history != null) {
       history
         ..novelTitle = title
         ..author = author
         ..totalChapters = totalChapters
+        ..isSerialNovel = isSerialNovel ?? history.isSerialNovel
         ..lastViewed = DateTime.now();
       await history.save();
     }

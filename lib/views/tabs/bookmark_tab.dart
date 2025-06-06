@@ -1,0 +1,586 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../viewmodels/bookmark_viewmodel.dart';
+import '../screens/webview_screen.dart';
+
+class BookmarkTab extends StatefulWidget {
+  const BookmarkTab({Key? key}) : super(key: key);
+
+  @override
+  State<BookmarkTab> createState() => _BookmarkTabState();
+}
+
+class _BookmarkTabState extends State<BookmarkTab> 
+    with AutomaticKeepAliveClientMixin {
+  late BookmarkViewModel _viewModel;
+  bool _isInitialized = false; // 初期化フラグを追加
+
+  @override
+  bool get wantKeepAlive => true; // 状態を保持
+
+  @override
+  void initState() {
+    super.initState();
+    _viewModel = BookmarkViewModel();
+    _initializeData();
+  }
+
+  // 初期化を分離して一度だけ実行
+  void _initializeData() {
+    if (!_isInitialized) {
+      _viewModel.loadBookmarks();
+      _isInitialized = true;
+    }
+  }
+
+  @override
+  void dispose() {
+    _viewModel.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context); // AutomaticKeepAliveClientMixinのために必要
+    
+    return ChangeNotifierProvider.value(
+      value: _viewModel,
+      child: Consumer<BookmarkViewModel>(
+        builder: (context, viewModel, child) {
+          return Scaffold(
+            appBar: AppBar(
+              title: const Text('ブックマーク'),
+              automaticallyImplyLeading: false,
+              actions: [
+                if (viewModel.isUpdatingFromApi)
+                  const Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  onPressed: viewModel.isUpdatingFromApi 
+                      ? null 
+                      : () => _refreshFromApi(viewModel),
+                  tooltip: 'APIから最新情報を取得',
+                ),
+                PopupMenuButton<String>(
+                  onSelected: (value) async {
+                    switch (value) {
+                      case 'refresh_api':
+                        await _refreshFromApi(viewModel);
+                        break;
+                      case 'sort_title':
+                        _sortBookmarks(viewModel, 'title');
+                        break;
+                      case 'sort_date':
+                        _sortBookmarks(viewModel, 'date');
+                        break;
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: 'refresh_api',
+                      child: ListTile(
+                        leading: Icon(Icons.cloud_download),
+                        title: Text('APIから更新'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'sort_title',
+                      child: ListTile(
+                        leading: Icon(Icons.sort_by_alpha),
+                        title: Text('タイトル順'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'sort_date',
+                      child: ListTile(
+                        leading: Icon(Icons.access_time),
+                        title: Text('更新日時順'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            body: _buildBody(viewModel),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildBody(BookmarkViewModel viewModel) {
+    if (viewModel.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (viewModel.bookmarks.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.bookmark_outline, size: 64, color: Colors.grey),
+            SizedBox(height: 16),
+            Text(
+              'ブックマークがありません',
+              style: TextStyle(fontSize: 18, color: Colors.grey),
+            ),
+            SizedBox(height: 8),
+            Text(
+              '小説を読んでブックマークに追加しましょう',
+              style: TextStyle(fontSize: 14, color: Colors.grey),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: () => viewModel.loadBookmarks(),
+      child: ListView.builder(
+        padding: const EdgeInsets.all(8),
+        itemCount: viewModel.bookmarks.length,
+        itemBuilder: (context, index) {
+          final bookmark = viewModel.bookmarks[index];
+          return _buildBookmarkCard(context, bookmark, viewModel);
+        },
+      ),
+    );
+  }
+
+  Future<void> _refreshFromApi(BookmarkViewModel viewModel) async {
+    try {
+      await viewModel.refreshFromApi();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ブックマーク情報を更新しました'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('更新に失敗しました'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  void _sortBookmarks(BookmarkViewModel viewModel, String sortType) {
+    // ソート機能は今回は簡単な実装
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${sortType == 'title' ? 'タイトル' : '日時'}順ソート機能は今後実装予定です')),
+    );
+  }
+
+  Widget _buildBookmarkCard(BuildContext context, dynamic bookmark, BookmarkViewModel viewModel) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _openNovel(context, bookmark),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // タイトル行
+              Row(
+                children: [
+                  const Icon(
+                    Icons.bookmark,
+                    color: Colors.orange,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      bookmark.novelTitle,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  _buildOptionsMenu(context, bookmark, viewModel),
+                ],
+              ),
+              const SizedBox(height: 8),
+              
+              // 作者情報
+              Row(
+                children: [
+                  const Icon(
+                    Icons.person_outline,
+                    size: 16,
+                    color: Colors.grey,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '作者: ${bookmark.author}',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              
+              // 進捗情報
+              Row(
+                children: [
+                  const Icon(
+                    Icons.menu_book_outlined,
+                    size: 16,
+                    color: Colors.grey,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    bookmark.isSerialNovel && bookmark.currentChapter > 0
+                        ? '第${bookmark.currentChapter}話まで読了'
+                        : '目次/短編',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  const Icon(
+                    Icons.access_time,
+                    size: 16,
+                    color: Colors.grey,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    viewModel.getTimeAgo(bookmark.lastViewed),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+              
+              // スクロール位置情報（あれば表示）
+              if (bookmark.scrollPosition != null && bookmark.scrollPosition! > 0) ...[
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.vertical_align_center,
+                      size: 16,
+                      color: Colors.blue,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '読書位置保存済み',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.blue,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              
+              const SizedBox(height: 12),
+              
+              // アクションボタン
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () => _openNovel(context, bookmark),
+                      icon: const Icon(Icons.play_arrow, size: 18),
+                      label: const Text(
+                        '続きを読む',
+                        style: TextStyle(fontSize: 14),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => _openFromBeginning(context, bookmark),
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text(
+                      '最初から',
+                      style: TextStyle(fontSize: 14),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOptionsMenu(BuildContext context, dynamic bookmark, BookmarkViewModel viewModel) {
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert, size: 20),
+      onSelected: (value) async {
+        switch (value) {
+          case 'refresh_single':
+            await _refreshSingleBookmark(bookmark, viewModel);
+            break;
+          case 'delete':
+            await _confirmDelete(context, bookmark, viewModel);
+            break;
+          case 'info':
+            _showBookmarkInfo(context, bookmark);
+            break;
+          case 'share':
+            _shareBookmark(bookmark);
+            break;
+        }
+      },
+      itemBuilder: (BuildContext context) => [
+        const PopupMenuItem<String>(
+          value: 'refresh_single',
+          child: ListTile(
+            leading: Icon(Icons.cloud_download),
+            title: Text('この作品を更新'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuItem<String>(
+          value: 'info',
+          child: ListTile(
+            leading: Icon(Icons.info_outline),
+            title: Text('詳細情報'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuItem<String>(
+          value: 'share',
+          child: ListTile(
+            leading: Icon(Icons.share),
+            title: Text('共有'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuItem<String>(
+          value: 'delete',
+          child: ListTile(
+            leading: Icon(Icons.delete, color: Colors.red),
+            title: Text('削除', style: TextStyle(color: Colors.red)),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _refreshSingleBookmark(dynamic bookmark, BookmarkViewModel viewModel) async {
+    try {
+      final novelDetails = await viewModel.fetchNovelDetails(bookmark.novelId);
+      if (novelDetails != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('「${bookmark.novelTitle}」の情報を更新しました'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        await viewModel.loadBookmarks(); // リロード
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('更新に失敗しました'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('更新中にエラーが発生しました'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _openNovel(BuildContext context, dynamic bookmark) {
+    // ViewModelのメソッドを使用してURL構築
+    final url = _viewModel.buildChapterUrl(bookmark.novelId, bookmark.currentChapter);
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => WebViewScreen(
+          novelId: bookmark.novelId,
+          title: bookmark.novelTitle,
+          url: url,
+        ),
+      ),
+    ).then((_) {
+      // 戻ってきたときにブックマークリストを更新
+      _viewModel.loadBookmarks();
+    });
+  }
+
+  void _openFromBeginning(BuildContext context, dynamic bookmark) {
+    // ViewModelのメソッドを使用してURL構築
+    final url = _viewModel.buildHomeUrl(bookmark.novelId);
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => WebViewScreen(
+          novelId: bookmark.novelId,
+          title: bookmark.novelTitle,
+          url: url,
+        ),
+      ),
+    ).then((_) {
+      _viewModel.loadBookmarks();
+    });
+  }
+
+  Future<void> _confirmDelete(BuildContext context, dynamic bookmark, BookmarkViewModel viewModel) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('ブックマーク削除'),
+          content: Text('「${bookmark.novelTitle}」をブックマークから削除しますか？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('キャンセル'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('削除'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true) {
+      await viewModel.deleteBookmark(bookmark.novelId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('「${bookmark.novelTitle}」を削除しました'),
+            backgroundColor: Colors.red,
+            action: SnackBarAction(
+              label: '元に戻す',
+              textColor: Colors.white,
+              onPressed: () {
+                // TODO: 削除の取り消し機能
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('取り消し機能は未実装です')),
+                );
+              },
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  void _showBookmarkInfo(BuildContext context, dynamic bookmark) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(bookmark.novelTitle),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildInfoRow('作者', bookmark.author),
+                _buildInfoRow('現在の章', '${bookmark.currentChapter}話'),
+                _buildInfoRow('追加日時', _formatDateTime(bookmark.addedAt)),
+                _buildInfoRow('最終閲覧', _formatDateTime(bookmark.lastViewed)),
+                if (bookmark.scrollPosition != null && bookmark.scrollPosition! > 0)
+                  _buildInfoRow('スクロール位置', '${bookmark.scrollPosition!.toInt()}px'),
+                _buildInfoRow('小説ID', bookmark.novelId),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('閉じる'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text(
+              '$label:',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          Expanded(
+            child: Text(value),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDateTime(DateTime dateTime) {
+    return '${dateTime.year}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.day.toString().padLeft(2, '0')} '
+           '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
+
+  void _shareBookmark(dynamic bookmark) {
+    // TODO: 共有機能を実装
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('共有機能は未実装です')),
+    );
+  }
+}

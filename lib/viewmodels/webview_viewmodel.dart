@@ -122,10 +122,10 @@ class WebViewViewModel extends ChangeNotifier {
   /// 小説が連載かどうかを判定
   bool isSerialNovel(Map<String, dynamic>? novelData) {
     if (novelData == null) return false;
-    
-    // novel_type: 1=短編, 2=連載
+
+    // novel_type: 2=短編, 1=連載
     final novelType = novelData['novel_type'];
-    return novelType == 2;
+    return novelType == 1;
   }
 
   /// 小説のタイトルを取得

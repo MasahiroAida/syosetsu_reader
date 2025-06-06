@@ -93,6 +93,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   /// 現在のURLから章番号を抽出し、`_currentChapter`も更新する
   int _extractChapterFromUrl(String url) {
     if (!_isSerialNovel) {
+      print('目次/短編小説のURLを検出: $url');
       _currentChapter = 0; // 目次/短編の場合は章番号なし
       return 0;
     }
@@ -102,6 +103,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     final match = regex.firstMatch(url);
 
     if (match != null) {
+      print('連載小説のURLを検出: $url');
       final chapter = int.tryParse(match.group(2)!) ?? 0;
       _currentChapter = chapter;
       return chapter;
@@ -121,13 +123,12 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
       if (ncode == null) {
         print('小説URLではないため詳細取得を中止します: $url');
         _novelDetails = null;
-        _isSerialNovel = _isSerialNovelFromUrl(url);
         return;
       }
 
       // API から小説詳細情報を取得
       final novelDetails = await _viewModel.fetchNovelDetailsFromUrl(url);
-      
+      _extractChapterFromUrl(url);
       if (novelDetails != null) {
         _novelDetails = novelDetails;
         
@@ -169,6 +170,8 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
             
             // 定期保存を停止
             _stopPeriodicScrollSave();
+            
+            _extractChapterFromUrl(url);
             
             // 新しいURLに対して小説詳細情報を取得
             await _fetchNovelDetailsAndUpdateType(url);

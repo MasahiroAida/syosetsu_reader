@@ -108,7 +108,16 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   Future<void> _fetchNovelDetailsAndUpdateType(String url) async {
     try {
       print('小説詳細情報を取得中...: $url');
-      
+
+      // URLが小説ページかどうか確認
+      final ncode = _viewModel.extractNcodeFromUrl(url);
+      if (ncode == null) {
+        print('小説URLではないため詳細取得を中止します: $url');
+        _novelDetails = null;
+        _isSerialNovel = _isSerialNovelFromUrl(url);
+        return;
+      }
+
       // API から小説詳細情報を取得
       final novelDetails = await _viewModel.fetchNovelDetailsFromUrl(url);
       

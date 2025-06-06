@@ -404,7 +404,6 @@ class DatabaseHelper {
         'novel_title': title,
         'author': author,
         'last_viewed': DateTime.now().millisecondsSinceEpoch,
-        'is_serial_novel': isSerialNovelFromUrl(novelId) ? 1 : 0,
       },
       where: 'novel_id = ?',
       whereArgs: [novelId],

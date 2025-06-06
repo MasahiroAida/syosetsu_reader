@@ -90,17 +90,24 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     }
   }
 
-  /// 現在のURLから章番号を抽出（連載の場合のみ）
+  /// 現在のURLから章番号を抽出し、`_currentChapter`も更新する
   int _extractChapterFromUrl(String url) {
-    if (!_isSerialNovel) return 0; // 目次/短編の場合は章番号なし
-    
+    if (!_isSerialNovel) {
+      _currentChapter = 0; // 目次/短編の場合は章番号なし
+      return 0;
+    }
+
     final regex =
         RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
     final match = regex.firstMatch(url);
-    
+
     if (match != null) {
-      return int.tryParse(match.group(2)!) ?? 0;
+      final chapter = int.tryParse(match.group(2)!) ?? 0;
+      _currentChapter = chapter;
+      return chapter;
     }
+
+    _currentChapter = 0;
     return 0;
   }
 
@@ -351,11 +358,11 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     // 小説種別はAPIから取得した情報を使用
     if (_isSerialNovel) {
       // 連載小説の場合：章番号を抽出
+      final previousChapter = _currentChapter;
       final chapterFromUrl = _extractChapterFromUrl(url);
 
-      if (chapterFromUrl > 0 && chapterFromUrl != _currentChapter) {
-        print('連載小説 - チャプター更新: $_currentChapter -> $chapterFromUrl');
-        _currentChapter = chapterFromUrl;
+      if (chapterFromUrl > 0 && chapterFromUrl != previousChapter) {
+        print('連載小説 - チャプター更新: $previousChapter -> $chapterFromUrl');
         await _updateReadingProgress();
       }
     } else {
@@ -556,10 +563,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
       // 現在表示中のURLから章番号を再取得
       if (_currentUrl != null) {
         if (_isSerialNovelFromUrl(_currentUrl!)) {
-          final chapterFromUrl = _extractChapterFromUrl(_currentUrl!);
-          if (chapterFromUrl > 0) {
-            _currentChapter = chapterFromUrl;
-          }
+          _extractChapterFromUrl(_currentUrl!);
         } else {
           _currentChapter = 0;
         }

@@ -1,0 +1,1 @@
+# syosetsu_reader

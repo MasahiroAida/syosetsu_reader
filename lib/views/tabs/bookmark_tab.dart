@@ -7,10 +7,10 @@ class BookmarkTab extends StatefulWidget {
   const BookmarkTab({Key? key}) : super(key: key);
 
   @override
-  State<BookmarkTab> createState() => _BookmarkTabState();
+  State<BookmarkTab> createState() => BookmarkTabState();
 }
 
-class _BookmarkTabState extends State<BookmarkTab> 
+class BookmarkTabState extends State<BookmarkTab>
     with AutomaticKeepAliveClientMixin {
   late BookmarkViewModel _viewModel;
   bool _isInitialized = false; // 初期化フラグを追加
@@ -33,6 +33,10 @@ class _BookmarkTabState extends State<BookmarkTab>
     }
   }
 
+  Future<void> reloadFromDb() async {
+    await _viewModel.loadBookmarks();
+  }
+
   @override
   void dispose() {
     _viewModel.dispose();
@@ -47,72 +51,7 @@ class _BookmarkTabState extends State<BookmarkTab>
       value: _viewModel,
       child: Consumer<BookmarkViewModel>(
         builder: (context, viewModel, child) {
-          return Scaffold(
-            appBar: AppBar(
-              title: const Text('ブックマーク'),
-              automaticallyImplyLeading: false,
-              actions: [
-                if (viewModel.isUpdatingFromApi)
-                  const Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                IconButton(
-                  icon: const Icon(Icons.refresh),
-                  onPressed: viewModel.isUpdatingFromApi 
-                      ? null 
-                      : () => _refreshFromApi(viewModel),
-                  tooltip: 'APIから最新情報を取得',
-                ),
-                PopupMenuButton<String>(
-                  onSelected: (value) async {
-                    switch (value) {
-                      case 'refresh_api':
-                        await _refreshFromApi(viewModel);
-                        break;
-                      case 'sort_title':
-                        _sortBookmarks(viewModel, 'title');
-                        break;
-                      case 'sort_date':
-                        _sortBookmarks(viewModel, 'date');
-                        break;
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    const PopupMenuItem(
-                      value: 'refresh_api',
-                      child: ListTile(
-                        leading: Icon(Icons.cloud_download),
-                        title: Text('APIから更新'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'sort_title',
-                      child: ListTile(
-                        leading: Icon(Icons.sort_by_alpha),
-                        title: Text('タイトル順'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'sort_date',
-                      child: ListTile(
-                        leading: Icon(Icons.access_time),
-                        title: Text('更新日時順'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            body: _buildBody(viewModel),
-          );
+          return _buildBody(viewModel);
         },
       ),
     );
@@ -145,7 +84,7 @@ class _BookmarkTabState extends State<BookmarkTab>
     }
 
     return RefreshIndicator(
-      onRefresh: () => viewModel.loadBookmarks(),
+      onRefresh: () => _refreshFromApi(viewModel),
       child: ListView.builder(
         padding: const EdgeInsets.all(8),
         itemCount: viewModel.bookmarks.length,
@@ -182,7 +121,8 @@ class _BookmarkTabState extends State<BookmarkTab>
     }
   }
 
-  void _sortBookmarks(BookmarkViewModel viewModel, String sortType) {
+  void sortBookmarks(String sortType) {
+    final viewModel = _viewModel;
     // ソート機能は今回は簡単な実装
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('${sortType == 'title' ? 'タイトル' : '日時'}順ソート機能は今後実装予定です')),

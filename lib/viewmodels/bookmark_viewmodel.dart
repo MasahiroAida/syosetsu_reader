@@ -11,7 +11,6 @@ class BookmarkViewModel extends ChangeNotifier {
   bool _isLoading = false;
   bool _isUpdatingFromApi = false;
   bool _isDisposed = false;
-  bool _hasInitialApiUpdate = false; // 初回API更新フラグ
   DateTime? _lastApiUpdateTime; // 最後のAPI更新時刻
   
   static const Duration _apiCooldownDuration = Duration(seconds: 30); // クールタイム
@@ -120,11 +119,9 @@ class BookmarkViewModel extends ChangeNotifier {
     try {
       if (!_isDisposed) {
         _bookmarks = await _dbHelper.getBookmarks();
-        
-        // 初回またはforceApiUpdateの場合のみAPI更新
-        if (!_hasInitialApiUpdate || forceApiUpdate) {
+
+        if (forceApiUpdate) {
           await _updateBookmarksFromApiInternal();
-          _hasInitialApiUpdate = true;
         }
       }
     } catch (e) {

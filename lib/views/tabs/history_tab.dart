@@ -8,10 +8,10 @@ class HistoryTab extends StatefulWidget {
   const HistoryTab({Key? key}) : super(key: key);
 
   @override
-  State<HistoryTab> createState() => _HistoryTabState();
+  State<HistoryTab> createState() => HistoryTabState();
 }
 
-class _HistoryTabState extends State<HistoryTab> 
+class HistoryTabState extends State<HistoryTab>
     with AutomaticKeepAliveClientMixin {
   late HistoryViewModel _viewModel;
   bool _isDisposed = false;
@@ -34,9 +34,13 @@ class _HistoryTabState extends State<HistoryTab>
   // 初期化を分離して一度だけ実行
   void _initializeData() {
     if (!_isDisposed && mounted && !_isInitialized) {
-      _viewModel.loadHistory(forceApiUpdate: true);
+      _viewModel.loadHistory();
       _isInitialized = true;
     }
+  }
+
+  Future<void> reloadFromDb() async {
+    await _viewModel.loadHistory();
   }
 
   @override
@@ -76,90 +80,7 @@ class _HistoryTabState extends State<HistoryTab>
       value: _viewModel,
       child: Consumer<HistoryViewModel>(
         builder: (context, viewModel, child) {
-          return Scaffold(
-            appBar: AppBar(
-              title: const Text('閲覧履歴'),
-              automaticallyImplyLeading: false,
-              actions: [
-                if (viewModel.isUpdatingFromApi)
-                  const Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                _buildRefreshButton(viewModel),
-                PopupMenuButton<String>(
-                  onSelected: (value) async {
-                    if (_isDisposed || !mounted) return;
-                    
-                    switch (value) {
-                      case 'refresh_api':
-                        await _refreshFromApi(viewModel);
-                        break;
-                      case 'clear_all':
-                        await _confirmClearAll(viewModel);
-                        break;
-                      case 'sort_title':
-                        _sortHistory(viewModel, 'title');
-                        break;
-                      case 'sort_date':
-                        _sortHistory(viewModel, 'date');
-                        break;
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    PopupMenuItem(
-                      value: 'refresh_api',
-                      enabled: !viewModel.isApiUpdateOnCooldown,
-                      child: ListTile(
-                        leading: Icon(
-                          Icons.cloud_download,
-                          color: viewModel.isApiUpdateOnCooldown ? Colors.grey : null,
-                        ),
-                        title: Text(
-                          viewModel.isApiUpdateOnCooldown 
-                              ? 'APIから更新 (${viewModel.cooldownRemainingSeconds}秒)'
-                              : 'APIから更新',
-                          style: TextStyle(
-                            color: viewModel.isApiUpdateOnCooldown ? Colors.grey : null,
-                          ),
-                        ),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'sort_title',
-                      child: ListTile(
-                        leading: Icon(Icons.sort_by_alpha),
-                        title: Text('タイトル順'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'sort_date',
-                      child: ListTile(
-                        leading: Icon(Icons.access_time),
-                        title: Text('更新日時順'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'clear_all',
-                      child: ListTile(
-                        leading: Icon(Icons.clear_all, color: Colors.red),
-                        title: Text('全削除', style: TextStyle(color: Colors.red)),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            body: _buildBody(viewModel),
-          );
+          return _buildBody(viewModel);
         },
       ),
     );
@@ -309,7 +230,7 @@ class _HistoryTabState extends State<HistoryTab>
     }
   }
 
-  void _sortHistory(HistoryViewModel viewModel, String sortType) {
+  void sortHistory(String sortType) {
     if (_isDisposed || !mounted) return;
     
     // ソート機能は今回は簡単な実装

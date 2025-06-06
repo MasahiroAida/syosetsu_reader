@@ -16,9 +16,11 @@ class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
   final PageController _pageController = PageController();
 
+  final GlobalKey<ReadingListScreenState> _readingListKey = GlobalKey();
+
   // 各画面のインスタンスを一度だけ作成して保持
   late final List<Widget> _screens = [
-    const ReadingListScreen(),
+    ReadingListScreen(key: _readingListKey),
     const RankingScreen(),
     const ReviewScreen(),
     const SearchScreen(),
@@ -55,6 +57,9 @@ class _MainScreenState extends State<MainScreen> {
             duration: const Duration(milliseconds: 300),
             curve: Curves.easeInOut,
           );
+          if (index == 0) {
+            _readingListKey.currentState?.reloadTabs();
+          }
         },
         items: const [
           BottomNavigationBarItem(

@@ -38,8 +38,10 @@ class DatabaseHelper {
     return 0;
   }
 
+  /// ブックマーク一覧を取得（最終閲覧時刻の降順でソート）
   Future<List<Bookmark>> getBookmarks() async {
     final list = _bookmarkBox.values.toList();
+    // 最終閲覧時刻で降順ソート（最新のものが上に来る）
     list.sort((a, b) => b.lastViewed.compareTo(a.lastViewed));
     return list;
   }
@@ -75,8 +77,10 @@ class DatabaseHelper {
     return 0;
   }
 
+  /// 閲覧履歴を取得（最終閲覧時刻の降順でソート、最大100件）
   Future<List<ReadingHistory>> getReadingHistory() async {
     final list = _historyBox.values.toList();
+    // 最終閲覧時刻で降順ソート（最新のものが上に来る）
     list.sort((a, b) => b.lastViewed.compareTo(a.lastViewed));
     if (list.length > 100) {
       return list.sublist(0, 100);
@@ -84,8 +88,10 @@ class DatabaseHelper {
     return list;
   }
 
+  /// 全ての閲覧履歴を取得（最終閲覧時刻の降順でソート）
   Future<List<ReadingHistory>> getAllReadingHistory() async {
     final list = _historyBox.values.toList();
+    // 最終閲覧時刻で降順ソート（最新のものが上に来る）
     list.sort((a, b) => b.lastViewed.compareTo(a.lastViewed));
     return list;
   }
@@ -98,17 +104,21 @@ class DatabaseHelper {
     }
   }
 
+  /// 読書履歴のチャプターを更新（最終閲覧時刻も自動更新）
   Future<int> updateReadingHistory(String novelId, int currentChapter) async {
     final history = await getReadingHistoryByNovelId(novelId);
     if (history != null) {
       history.currentChapter = currentChapter;
-      history.lastViewed = DateTime.now();
+      history.lastViewed = DateTime.now(); // 最終閲覧時刻を現在時刻に更新
       await history.save();
     }
     return 0;
   }
 
+  /// 読書履歴を完全更新（履歴の並び順を最新にするため時刻更新）
   Future<int> updateReadingHistoryFull(ReadingHistory history) async {
+    // 最終閲覧時刻を現在時刻に更新して最新の位置に移動
+    history.lastViewed = DateTime.now();
     await _historyBox.put(history.id, history);
     return 0;
   }
@@ -121,25 +131,27 @@ class DatabaseHelper {
     return 0;
   }
 
+  /// 読書位置を更新（最終閲覧時刻も自動更新）
   Future<int> updateReadingPosition(
       String novelId, int currentChapter, double scrollPosition) async {
     final history = await getReadingHistoryByNovelId(novelId);
     if (history != null) {
       history.currentChapter = currentChapter;
       history.scrollPosition = scrollPosition;
-      history.lastViewed = DateTime.now();
+      history.lastViewed = DateTime.now(); // 最終閲覧時刻を現在時刻に更新
       await history.save();
     }
     return 0;
   }
 
+  /// ブックマークの位置を更新（最終閲覧時刻も自動更新）
   Future<int> updateBookmarkPosition(
       String novelId, int currentChapter, double scrollPosition) async {
     final bookmark = await getBookmarkByNovelId(novelId);
     if (bookmark != null) {
       bookmark.currentChapter = currentChapter;
       bookmark.scrollPosition = scrollPosition;
-      bookmark.lastViewed = DateTime.now();
+      bookmark.lastViewed = DateTime.now(); // 最終閲覧時刻を現在時刻に更新
       await bookmark.save();
     }
     return 0;
@@ -173,6 +185,7 @@ class DatabaseHelper {
     }
   }
 
+  /// ブックマーク情報を更新（最終閲覧時刻も自動更新）
   Future<void> updateBookmarkInfo(
       String novelId, String title, String author) async {
     final bookmark = await getBookmarkByNovelId(novelId);
@@ -180,11 +193,12 @@ class DatabaseHelper {
       bookmark
         ..novelTitle = title
         ..author = author
-        ..lastViewed = DateTime.now();
+        ..lastViewed = DateTime.now(); // 最終閲覧時刻を現在時刻に更新
       await bookmark.save();
     }
   }
 
+  /// 読書履歴の情報を更新（最終閲覧時刻も自動更新）
   Future<void> updateReadingHistoryInfo(
       String novelId, String title, String author, int totalChapters,
       {bool? isSerialNovel}) async {
@@ -195,7 +209,7 @@ class DatabaseHelper {
         ..author = author
         ..totalChapters = totalChapters
         ..isSerialNovel = isSerialNovel ?? history.isSerialNovel
-        ..lastViewed = DateTime.now();
+        ..lastViewed = DateTime.now(); // 最終閲覧時刻を現在時刻に更新
       await history.save();
     }
   }
@@ -205,6 +219,7 @@ class DatabaseHelper {
     final bookmark = await getBookmarkByNovelId(novelId);
     if (bookmark != null) {
       bookmark.isSerialNovel = isSerialNovel;
+      bookmark.lastViewed = DateTime.now(); // この更新でも最終閲覧時刻を更新
       await bookmark.save();
     }
   }

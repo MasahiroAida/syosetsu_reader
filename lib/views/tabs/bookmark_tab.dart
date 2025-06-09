@@ -98,15 +98,25 @@ class BookmarkTabState extends State<BookmarkTab>
 
   Future<void> _refreshFromApi(BookmarkViewModel viewModel) async {
     try {
-      await viewModel.refreshFromApi();
+      final success = await viewModel.refreshFromApi();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('ブックマーク情報を更新しました'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('ブックマーク情報を更新しました'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('更新中です... 残り${viewModel.cooldownRemainingSeconds}秒お待ちください'),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -131,13 +141,19 @@ class BookmarkTabState extends State<BookmarkTab>
 
   Widget _buildBookmarkCard(BuildContext context, dynamic bookmark, BookmarkViewModel viewModel) {
     final unread = viewModel.getUnreadCount(bookmark.novelId);
+    final hasUnread = unread > 0;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       elevation: 2,
-      color: unread > 0 ? Colors.yellow[100] : null,
+      // 未読があるカードの背景色を変更
+      color: hasUnread ? Colors.orange[50] : null,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
+        // 未読がある場合は薄いオレンジ色のボーダーを追加
+        side: hasUnread
+            ? BorderSide(color: Colors.orange[200]!, width: 1.5)
+            : BorderSide.none,
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
@@ -150,18 +166,39 @@ class BookmarkTabState extends State<BookmarkTab>
               // タイトル行
               Row(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.bookmark,
-                    color: Colors.orange,
+                    color: hasUnread ? Colors.orange[600] : Colors.orange,
                     size: 20,
                   ),
                   const SizedBox(width: 8),
+                  // 未読バッジ
+                  if (hasUnread) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '$unread話未読',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
                   Expanded(
                     child: Text(
                       bookmark.novelTitle,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
+                        // 未読がある場合は少し色を変える
+                        color: hasUnread ? Colors.orange[800] : null,
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -258,12 +295,17 @@ class BookmarkTabState extends State<BookmarkTab>
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: () => _openNovel(context, bookmark),
-                      icon: const Icon(Icons.play_arrow, size: 18),
-                      label: const Text(
-                        '続きを読む',
-                        style: TextStyle(fontSize: 14),
+                      icon: Icon(
+                        hasUnread ? Icons.fiber_new : Icons.play_arrow,
+                        size: 18,
+                      ),
+                      label: Text(
+                        hasUnread ? '新着を読む' : '続きを読む',
+                        style: const TextStyle(fontSize: 14),
                       ),
                       style: ElevatedButton.styleFrom(
+                        backgroundColor: hasUnread ? Colors.orange[600] : null,
+                        foregroundColor: hasUnread ? Colors.white : null,
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
@@ -307,7 +349,7 @@ class BookmarkTabState extends State<BookmarkTab>
             await _confirmDelete(context, bookmark, viewModel);
             break;
           case 'info':
-            _showBookmarkInfo(context, bookmark);
+            _showBookmarkInfo(context, bookmark, viewModel);
             break;
           case 'share':
             _shareBookmark(bookmark);
@@ -353,30 +395,33 @@ class BookmarkTabState extends State<BookmarkTab>
 
   Future<void> _refreshSingleBookmark(dynamic bookmark, BookmarkViewModel viewModel) async {
     try {
-      final novelDetails = await viewModel.fetchNovelDetails(bookmark.novelId);
-      if (novelDetails != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('「${bookmark.novelTitle}」の情報を更新しました'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        await viewModel.loadBookmarks(); // リロード
-      } else {
+      final success = await viewModel.refreshSingleBookmark(bookmark.novelId);
+      if (mounted) {
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('「${bookmark.novelTitle}」の情報を更新しました'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('更新に失敗しました（クールタイム中かエラー）'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('更新に失敗しました'),
+            content: Text('更新中にエラーが発生しました'),
             backgroundColor: Colors.red,
           ),
         );
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('更新中にエラーが発生しました'),
-          backgroundColor: Colors.red,
-        ),
-      );
     }
   }
 
@@ -462,7 +507,9 @@ class BookmarkTabState extends State<BookmarkTab>
     }
   }
 
-  void _showBookmarkInfo(BuildContext context, dynamic bookmark) {
+  void _showBookmarkInfo(BuildContext context, dynamic bookmark, BookmarkViewModel viewModel) {
+    final unread = viewModel.getUnreadCount(bookmark.novelId);
+    
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -475,11 +522,13 @@ class BookmarkTabState extends State<BookmarkTab>
               children: [
                 _buildInfoRow('作者', bookmark.author),
                 _buildInfoRow('現在の章', '${bookmark.currentChapter}話'),
+                if (unread > 0) _buildInfoRow('未読話数', '$unread話', Colors.red),
                 _buildInfoRow('追加日時', _formatDateTime(bookmark.addedAt)),
                 _buildInfoRow('最終閲覧', _formatDateTime(bookmark.lastViewed)),
                 if (bookmark.scrollPosition != null && bookmark.scrollPosition! > 0)
                   _buildInfoRow('スクロール位置', '${bookmark.scrollPosition!.toInt()}px'),
                 _buildInfoRow('小説ID', bookmark.novelId),
+                _buildInfoRow('小説種別', bookmark.isSerialNovel ? '連載' : '短編'),
               ],
             ),
           ),
@@ -494,7 +543,7 @@ class BookmarkTabState extends State<BookmarkTab>
     );
   }
 
-  Widget _buildInfoRow(String label, String value) {
+  Widget _buildInfoRow(String label, String value, [Color? textColor]) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -508,7 +557,10 @@ class BookmarkTabState extends State<BookmarkTab>
             ),
           ),
           Expanded(
-            child: Text(value),
+            child: Text(
+              value,
+              style: TextStyle(color: textColor),
+            ),
           ),
         ],
       ),

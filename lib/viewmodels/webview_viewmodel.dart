@@ -206,11 +206,13 @@ class WebViewViewModel extends ChangeNotifier {
     }
   }
 
-  /// 履歴を追加または更新（API情報を使用）
+  /// 履歴を追加または更新（API情報を使用）+ ブックマークの最終閲覧時刻も更新
   Future<void> addToHistory(ReadingHistory history, {Map<String, dynamic>? novelData}) async {
     try {
       // 既存の履歴があるかチェック
       final existingHistory = await _dbHelper.getReadingHistoryByNovelId(history.novelId);
+      
+      final now = DateTime.now();
       
       // API情報がある場合は、より正確な情報で履歴を更新
       ReadingHistory updatedHistory = history;
@@ -222,7 +224,7 @@ class WebViewViewModel extends ChangeNotifier {
           author: getNovelAuthor(novelData),
           currentChapter: history.currentChapter,
           totalChapters: getTotalChapters(novelData),
-          lastViewed: DateTime.now(), // 常に現在時刻で更新
+          lastViewed: now, // 現在時刻で更新
           url: history.url,
           scrollPosition: history.scrollPosition,
           isSerialNovel: isSerialNovel(novelData),
@@ -236,7 +238,7 @@ class WebViewViewModel extends ChangeNotifier {
           author: history.author,
           currentChapter: history.currentChapter,
           totalChapters: history.totalChapters,
-          lastViewed: DateTime.now(),
+          lastViewed: now, // 現在時刻で更新
           url: history.url,
           scrollPosition: history.scrollPosition,
           isSerialNovel: history.isSerialNovel,
@@ -252,8 +254,35 @@ class WebViewViewModel extends ChangeNotifier {
         await _dbHelper.insertReadingHistory(updatedHistory);
         print('閲覧履歴を新規追加: ${updatedHistory.novelId} (第${updatedHistory.currentChapter}章) at ${updatedHistory.lastViewed}');
       }
+
+      // ★ ブックマークの最終閲覧時刻も同時に更新
+      await updateBookmarkLastViewed(history.novelId, now, novelData);
+      
     } catch (e) {
       print('履歴追加エラー: $e');
+    }
+  }
+
+  /// ブックマークの最終閲覧時刻を更新（新規メソッド）
+  Future<void> updateBookmarkLastViewed(String novelId, DateTime lastViewed, Map<String, dynamic>? novelData) async {
+    try {
+      final bookmark = await _dbHelper.getBookmarkByNovelId(novelId);
+      if (bookmark != null) {
+        // ブックマークが存在する場合は最終閲覧時刻を更新
+        bookmark.lastViewed = lastViewed;
+        
+        // API情報がある場合は、より正確な情報で更新
+        if (novelData != null) {
+          bookmark.novelTitle = getNovelTitle(novelData, fallbackTitle: bookmark.novelTitle);
+          bookmark.author = getNovelAuthor(novelData);
+          bookmark.isSerialNovel = isSerialNovel(novelData);
+        }
+        
+        await bookmark.save();
+        print('ブックマークの最終閲覧時刻を更新: $novelId at $lastViewed');
+      }
+    } catch (e) {
+      print('ブックマーク最終閲覧時刻更新エラー: $e');
     }
   }
 
@@ -301,10 +330,14 @@ class WebViewViewModel extends ChangeNotifier {
     }
   }
 
-  /// 読書履歴のチャプターを更新
+  /// 読書履歴のチャプターを更新（最終閲覧時刻も更新）
   Future<void> updateReadingChapter(String novelId, int currentChapter) async {
     try {
+      final now = DateTime.now();
       await _dbHelper.updateReadingHistory(novelId, currentChapter);
+      
+      // ★ ブックマークの最終閲覧時刻も同時に更新
+      await updateBookmarkLastViewed(novelId, now, null);
       
       if (currentChapter == 0) {
         print('読書履歴を目次/短編として更新: $novelId');
@@ -316,10 +349,14 @@ class WebViewViewModel extends ChangeNotifier {
     }
   }
 
-  /// 読書履歴の位置（チャプター + スクロール）を更新
+  /// 読書履歴の位置（チャプター + スクロール）を更新（最終閲覧時刻も更新）
   Future<void> updateReadingPosition(String novelId, int currentChapter, double scrollPosition) async {
     try {
+      final now = DateTime.now();
       await _dbHelper.updateReadingPosition(novelId, currentChapter, scrollPosition);
+      
+      // ★ ブックマークの最終閲覧時刻も同時に更新
+      await updateBookmarkLastViewed(novelId, now, null);
       
       if (currentChapter == 0) {
         print('目次/短編の読書位置を更新: $novelId -> scroll: $scrollPosition');
@@ -372,14 +409,15 @@ class WebViewViewModel extends ChangeNotifier {
     Map<String, dynamic>? novelData,
   }) async {
     try {
+      final now = DateTime.now();
       final bookmark = Bookmark(
         id: novelId,
         novelId: novelId,
         novelTitle: novelData != null ? getNovelTitle(novelData, fallbackTitle: title) : title,
         author: novelData != null ? getNovelAuthor(novelData) : 'Unknown',
         currentChapter: currentChapter,
-        addedAt: DateTime.now(),
-        lastViewed: DateTime.now(),
+        addedAt: now,
+        lastViewed: now,
         scrollPosition: scrollPosition,
         isSerialNovel: isSerialNovel,
       );

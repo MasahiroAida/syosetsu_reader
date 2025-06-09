@@ -23,8 +23,7 @@ class BookmarkViewModel extends ChangeNotifier {
     _bookmarkSubscription =
         Hive.box<Bookmark>(DatabaseHelper.bookmarkBoxName).watch().listen((_) async {
       if (_isDisposed) return;
-      _bookmarks = await _dbHelper.getBookmarks();
-      await _updateUnreadCounts();
+      await _loadBookmarksInternal();
       _safeNotifyListeners();
     });
   }
@@ -61,14 +60,37 @@ class BookmarkViewModel extends ChangeNotifier {
     }
   }
 
+  /// 内部的なブックマーク読み込み処理
+  Future<void> _loadBookmarksInternal() async {
+    try {
+      _bookmarks = await _dbHelper.getBookmarks();
+      await _updateUnreadCounts();
+    } catch (e) {
+      print('ブックマーク内部読み込みエラー: $e');
+    }
+  }
+
+  /// 未読数を更新（ブックマークと履歴を比較）
   Future<void> _updateUnreadCounts() async {
     _unreadCounts.clear();
     for (final bookmark in _bookmarks) {
       final history = await _dbHelper.getReadingHistoryByNovelId(bookmark.novelId);
+      
       if (history != null) {
+        // 履歴がある場合：履歴の未読数を使用
         _unreadCounts[bookmark.novelId] = history.unreadChapters;
       } else {
-        _unreadCounts[bookmark.novelId] = 0;
+        // 履歴がない場合：ブックマークの情報のみで判断
+        // API情報から総話数を取得して比較する
+        final novelData = await fetchNovelDetails(bookmark.novelId);
+        if (novelData != null) {
+          final totalChapters = getTotalChapters(novelData);
+          final currentChapter = bookmark.currentChapter;
+          final unread = totalChapters > currentChapter ? totalChapters - currentChapter : 0;
+          _unreadCounts[bookmark.novelId] = unread;
+        } else {
+          _unreadCounts[bookmark.novelId] = 0;
+        }
       }
     }
   }
@@ -122,11 +144,12 @@ class BookmarkViewModel extends ChangeNotifier {
     return 'Unknown';
   }
 
-  /// 小説が連載かどうかを判定
+  /// 小説が連載かどうかを判定（修正版）
   bool isSerialNovel(Map<String, dynamic>? novelData) {
     if (novelData == null) return false;
+    // novel_type: 1=連載, 2=短編
     final novelType = novelData['novel_type'];
-    return novelType == 2;
+    return novelType == 1; // 1が連載
   }
 
   /// 小説の総話数を取得
@@ -146,8 +169,7 @@ class BookmarkViewModel extends ChangeNotifier {
 
     try {
       if (!_isDisposed) {
-        _bookmarks = await _dbHelper.getBookmarks();
-        await _updateUnreadCounts();
+        await _loadBookmarksInternal();
 
         if (forceApiUpdate) {
           await _updateBookmarksFromApiInternal();
@@ -185,37 +207,21 @@ class BookmarkViewModel extends ChangeNotifier {
         if (novelDetails != null && !_isDisposed) {
           final updatedTitle = getNovelTitle(novelDetails, fallbackTitle: bookmark.novelTitle);
           final updatedAuthor = getNovelAuthor(novelDetails);
-          //final updatedIsSerial = isSerialNovel(novelDetails);
+          final updatedIsSerial = isSerialNovel(novelDetails);
           
           // 情報が変更されている場合のみ更新
           if (updatedTitle != bookmark.novelTitle || 
-              updatedAuthor != bookmark.author) {
+              updatedAuthor != bookmark.author ||
+              updatedIsSerial != bookmark.isSerialNovel) {
 
-            final updatedBookmark = Bookmark(
-              id: bookmark.id,
-              novelId: bookmark.novelId,
-              novelTitle: updatedTitle,
-              author: updatedAuthor,
-              currentChapter: bookmark.currentChapter,
-              //isSerialNovel: updatedIsSerial,
-              addedAt: bookmark.addedAt,
-              lastViewed: bookmark.lastViewed,
-              scrollPosition: bookmark.scrollPosition,
-            );
+            bookmark.novelTitle = updatedTitle;
+            bookmark.author = updatedAuthor;
+            bookmark.isSerialNovel = updatedIsSerial;
             
             // データベースを更新
-            await _dbHelper.updateBookmarkInfo(
-              bookmark.novelId, 
-              updatedTitle, 
-              updatedAuthor, 
-              //updatedIsSerial
-            );
+            await bookmark.save();
             
-            // リスト内のブックマークを更新
-            if (!_isDisposed) {
-              _bookmarks[i] = updatedBookmark;
-              hasUpdates = true;
-            }
+            hasUpdates = true;
             
             print('ブックマーク情報を更新: ${bookmark.novelTitle} -> $updatedTitle');
           }
@@ -284,35 +290,19 @@ class BookmarkViewModel extends ChangeNotifier {
       if (novelDetails != null && !_isDisposed) {
         final updatedTitle = getNovelTitle(novelDetails, fallbackTitle: bookmark.novelTitle);
         final updatedAuthor = getNovelAuthor(novelDetails);
-        //final updatedIsSerial = isSerialNovel(novelDetails);
+        final updatedIsSerial = isSerialNovel(novelDetails);
         
         // 情報が変更されている場合のみ更新
         if (updatedTitle != bookmark.novelTitle || 
-            updatedAuthor != bookmark.author) {
+            updatedAuthor != bookmark.author ||
+            updatedIsSerial != bookmark.isSerialNovel) {
           
-          final updatedBookmark = Bookmark(
-            id: bookmark.id,
-            novelId: bookmark.novelId,
-            novelTitle: updatedTitle,
-            author: updatedAuthor,
-            currentChapter: bookmark.currentChapter,
-            //isSerialNovel: updatedIsSerial,
-            addedAt: bookmark.addedAt,
-            lastViewed: bookmark.lastViewed,
-            scrollPosition: bookmark.scrollPosition,
-          );
+          bookmark.novelTitle = updatedTitle;
+          bookmark.author = updatedAuthor;
+          bookmark.isSerialNovel = updatedIsSerial;
           
           // データベースを更新
-          await _dbHelper.updateBookmarkInfo(
-            bookmark.novelId, 
-            updatedTitle, 
-            updatedAuthor
-          );
-          
-          // リスト内のブックマークを更新
-          if (!_isDisposed) {
-            _bookmarks[bookmarkIndex] = updatedBookmark;
-          }
+          await bookmark.save();
           
           print('ブックマーク情報を更新: ${bookmark.novelTitle} -> $updatedTitle');
         }
@@ -321,10 +311,9 @@ class BookmarkViewModel extends ChangeNotifier {
         _lastApiUpdateTime = DateTime.now();
         
         if (!_isDisposed) {
+          await _updateUnreadCounts();
           _safeNotifyListeners();
         }
-
-        await _updateUnreadCounts();
         
         return true;
       }

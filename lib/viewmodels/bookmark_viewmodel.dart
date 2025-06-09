@@ -10,6 +10,7 @@ class BookmarkViewModel extends ChangeNotifier {
   final DatabaseHelper _dbHelper = DatabaseHelper();
   
   List<Bookmark> _bookmarks = [];
+  final Map<String, int> _unreadCounts = {}; // novelId -> unread count
   bool _isLoading = false;
   bool _isUpdatingFromApi = false;
   bool _isDisposed = false;
@@ -23,6 +24,7 @@ class BookmarkViewModel extends ChangeNotifier {
         Hive.box<Bookmark>(DatabaseHelper.bookmarkBoxName).watch().listen((_) async {
       if (_isDisposed) return;
       _bookmarks = await _dbHelper.getBookmarks();
+      await _updateUnreadCounts();
       _safeNotifyListeners();
     });
   }
@@ -30,6 +32,7 @@ class BookmarkViewModel extends ChangeNotifier {
   List<Bookmark> get bookmarks => _bookmarks;
   bool get isLoading => _isLoading;
   bool get isUpdatingFromApi => _isUpdatingFromApi;
+  int getUnreadCount(String novelId) => _unreadCounts[novelId] ?? 0;
   
   /// API更新のクールタイムが有効かどうか
   bool get isApiUpdateOnCooldown {
@@ -55,6 +58,18 @@ class BookmarkViewModel extends ChangeNotifier {
   void _safeNotifyListeners() {
     if (!_isDisposed) {
       notifyListeners();
+    }
+  }
+
+  Future<void> _updateUnreadCounts() async {
+    _unreadCounts.clear();
+    for (final bookmark in _bookmarks) {
+      final history = await _dbHelper.getReadingHistoryByNovelId(bookmark.novelId);
+      if (history != null) {
+        _unreadCounts[bookmark.novelId] = history.unreadChapters;
+      } else {
+        _unreadCounts[bookmark.novelId] = 0;
+      }
     }
   }
 
@@ -132,6 +147,7 @@ class BookmarkViewModel extends ChangeNotifier {
     try {
       if (!_isDisposed) {
         _bookmarks = await _dbHelper.getBookmarks();
+        await _updateUnreadCounts();
 
         if (forceApiUpdate) {
           await _updateBookmarksFromApiInternal();
@@ -215,6 +231,7 @@ class BookmarkViewModel extends ChangeNotifier {
       _lastApiUpdateTime = DateTime.now();
       
       if (hasUpdates && !_isDisposed) {
+        await _updateUnreadCounts();
         _safeNotifyListeners();
       }
     } catch (e) {
@@ -306,6 +323,8 @@ class BookmarkViewModel extends ChangeNotifier {
         if (!_isDisposed) {
           _safeNotifyListeners();
         }
+
+        await _updateUnreadCounts();
         
         return true;
       }

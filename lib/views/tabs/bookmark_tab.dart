@@ -130,9 +130,12 @@ class BookmarkTabState extends State<BookmarkTab>
   }
 
   Widget _buildBookmarkCard(BuildContext context, dynamic bookmark, BookmarkViewModel viewModel) {
+    final unread = viewModel.getUnreadCount(bookmark.novelId);
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       elevation: 2,
+      color: unread > 0 ? Colors.yellow[100] : null,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
       ),

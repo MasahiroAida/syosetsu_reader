@@ -1317,7 +1317,10 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                       _setColorScheme(1); // color1 = ライトモード
                       
                       // アプリ全体のテーマも変更
-                      await ThemeHelper.setColorScheme(context, 1);
+                      await ThemeHelper.setThemeMode(
+                        context,
+                        AppThemeMode.light,
+                      );
                       
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('ライトモードに変更しました')),
@@ -1340,7 +1343,10 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                       _setColorScheme(2); // color2 = ダークモード
                       
                       // アプリ全体のテーマも変更
-                      await ThemeHelper.setColorScheme(context, 2);
+                      await ThemeHelper.setThemeMode(
+                        context,
+                        AppThemeMode.dark,
+                      );
                       
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('ダークモードに変更しました')),

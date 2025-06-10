@@ -99,6 +99,27 @@ class ThemeHelper {
     final theme = Theme.of(context);
     return theme.iconTheme.color ?? Colors.black54;
   }
+
+  /// テーマに基づいたBoxDecorationを取得
+  static BoxDecoration getBoxDecoration(
+    BuildContext context, {
+    Color? color,
+    BorderRadius? borderRadius,
+    Border? border,
+    BoxShape shape = BoxShape.rectangle,
+    List<BoxShadow>? boxShadow,
+    Gradient? gradient,
+  }) {
+    final theme = Theme.of(context);
+    return BoxDecoration(
+      color: color ?? theme.cardColor,
+      borderRadius: shape == BoxShape.circle ? null : borderRadius,
+      border: border,
+      shape: shape,
+      boxShadow: boxShadow,
+      gradient: gradient,
+    );
+  }
 }
 
 /// Widget拡張でテーマヘルパーを簡単に使用できるようにする

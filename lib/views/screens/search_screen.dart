@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../viewmodels/search_viewmodel.dart';
 import '../../services/api_service.dart';
 import '../../utils/constants.dart';
+import '../../utils/theme_helper.dart';
 import 'webview_screen.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -111,10 +112,10 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget _buildFilters(SearchViewModel viewModel) {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.grey[100],
-        border: const Border(
-          bottom: BorderSide(color: Colors.grey),
+      decoration: ThemeHelper.getBoxDecoration(
+        context,
+        border: Border(
+          bottom: BorderSide(color: Theme.of(context).dividerColor),
         ),
       ),
       child: Column(

@@ -40,6 +40,10 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   Map<String, dynamic>? _novelDetails; // API から取得した小説詳細情報
 
   bool _isAppInBackground = false;
+
+  // AppBarとBottomNavigationBarの表示状態を管理
+  bool _isControlsVisible = true;
+  bool _scrollListenerAdded = false;
   
   @override
   void initState() {
@@ -167,6 +171,13 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0x00000000))
+      ..addJavaScriptChannel('ScrollDetector', onMessageReceived: (JavaScriptMessage message) {
+        if (message.message == 'scroll' && _isControlsVisible) {
+          setState(() {
+            _isControlsVisible = false;
+          });
+        }
+      })
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (String url) async {
@@ -174,6 +185,9 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
             _hasScrolledToTitle = false;
             _currentUrl = url;
             print('ページ読み込み開始: $url');
+
+            // 新しいページ読み込みでスクロールリスナーをリセット
+            _scrollListenerAdded = false;
             
             // 定期保存を停止
             _stopPeriodicScrollSave();
@@ -211,6 +225,9 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
               if (!_hasScrolledToTitle) {
                 await _scrollToTitle();
                 _hasScrolledToTitle = true;
+              }
+              if (!_scrollListenerAdded) {
+                _addScrollListener();
               }
             } catch (e) {
               print('ページ処理エラー: $e');
@@ -611,6 +628,19 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     }
   }
 
+  void _addScrollListener() {
+    const script = '''
+      if(!window._flutterScrollListenerAdded) {
+        window.addEventListener('scroll', function() {
+          ScrollDetector.postMessage('scroll');
+        });
+        window._flutterScrollListenerAdded = true;
+      }
+    ''';
+    _controller.runJavaScript(script);
+    _scrollListenerAdded = true;
+  }
+
   @override
   void dispose() {
     print('WebViewScreen dispose開始');
@@ -652,30 +682,45 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
               : widget.title;
               
           return Scaffold(
-            appBar: AppBar(
-              toolbarHeight: 45,
-              title: Text(
-                displayTitle,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12.0, fontWeight: FontWeight.bold)
-              ),
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.refresh),
-                  onPressed: () => _controller.reload(),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.more_vert),
-                  onPressed: () => _showMoreOptions(viewModel),
-                ),
-              ],
-            ),
+            appBar: _isControlsVisible
+                ? AppBar(
+                    toolbarHeight: 45,
+                    title: Text(
+                      displayTitle,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 12.0, fontWeight: FontWeight.bold),
+                    ),
+                    actions: [
+                      IconButton(
+                        icon: const Icon(Icons.refresh),
+                        onPressed: () => _controller.reload(),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.more_vert),
+                        onPressed: () => _showMoreOptions(viewModel),
+                      ),
+                    ],
+                  )
+                : null,
             body: SafeArea(
-              child: WebViewWidget(controller: _controller),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  if (!_isControlsVisible) {
+                    setState(() {
+                      _isControlsVisible = true;
+                    });
+                  }
+                },
+                child: WebViewWidget(controller: _controller),
+              ),
             ),
-            bottomNavigationBar: SafeArea(
-              child: _buildBottomNavigationBar(viewModel),
-            ),
+            bottomNavigationBar: _isControlsVisible
+                ? SafeArea(
+                    child: _buildBottomNavigationBar(viewModel),
+                  )
+                : null,
           );
         },
       ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../viewmodels/review_viewmodel.dart';
+import '../../utils/theme_helper.dart';
 import 'webview_screen.dart';
 
 class ReviewScreen extends StatefulWidget {
@@ -106,10 +107,12 @@ class _ReviewScreenState extends State<ReviewScreen> {
                   // レビュー内容
                   Container(
                     padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[50],
+                    decoration: ThemeHelper.getBoxDecoration(
+                      context,
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey[200]!),
+                      border: Border.all(
+                        color: Theme.of(context).dividerColor,
+                      ),
                     ),
                     child: Text(
                       review.summary,

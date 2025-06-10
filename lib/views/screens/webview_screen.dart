@@ -685,7 +685,8 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   Widget _buildBottomNavigationBar(WebViewViewModel viewModel) {
     return Container(
       height: 35,
-      decoration: BoxDecoration(
+      decoration: ThemeHelper.getBoxDecoration(
+        context,
         color: Theme.of(context).scaffoldBackgroundColor,
         boxShadow: [
           BoxShadow(

@@ -172,25 +172,6 @@ class BookmarkTabState extends State<BookmarkTab>
                     size: 20,
                   ),
                   const SizedBox(width: 8),
-                  // 未読バッジ
-                  if (hasUnread) ...[
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.red,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        '$unread話未読',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
                   Expanded(
                     child: Text(
                       bookmark.novelTitle,
@@ -218,11 +199,15 @@ class BookmarkTabState extends State<BookmarkTab>
                     color: Colors.grey,
                   ),
                   const SizedBox(width: 4),
-                  Text(
-                    '作者: ${bookmark.author}',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey,
+                  Expanded(
+                    child: Text(
+                      '作者: ${bookmark.author}',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
@@ -238,15 +223,42 @@ class BookmarkTabState extends State<BookmarkTab>
                     color: Colors.grey,
                   ),
                   const SizedBox(width: 4),
-                  Text(
-                    bookmark.isSerialNovel && bookmark.currentChapter > 0
-                        ? '第${bookmark.currentChapter}話まで読了'
-                        : '目次/短編',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey,
+                  if (bookmark.isSerialNovel && bookmark.currentChapter > 0) ...[
+                    Text(
+                      '第${bookmark.currentChapter}話',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey,
+                      ),
                     ),
-                  ),
+                    if (hasUnread) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.red[100],
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.red[300]!, width: 1),
+                        ),
+                        child: Text(
+                          '未読${unread}話',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.red[700],
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ] else ...[
+                    Text(
+                      '目次/短編',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
                   const SizedBox(width: 16),
                   const Icon(
                     Icons.access_time,
@@ -296,16 +308,16 @@ class BookmarkTabState extends State<BookmarkTab>
                     child: ElevatedButton.icon(
                       onPressed: () => _openNovel(context, bookmark),
                       icon: Icon(
-                        hasUnread ? Icons.fiber_new : Icons.play_arrow,
+                        Icons.play_arrow,
                         size: 18,
                       ),
                       label: Text(
-                        hasUnread ? '新着を読む' : '続きを読む',
+                        '続きを読む',
                         style: const TextStyle(fontSize: 14),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: hasUnread ? Colors.orange[600] : null,
-                        foregroundColor: hasUnread ? Colors.white : null,
+                        backgroundColor: null,
+                        foregroundColor: null,
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
@@ -313,21 +325,7 @@ class BookmarkTabState extends State<BookmarkTab>
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: () => _openFromBeginning(context, bookmark),
-                    icon: const Icon(Icons.refresh, size: 18),
-                    label: const Text(
-                      '最初から',
-                      style: TextStyle(fontSize: 14),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                  ),
+                  const SizedBox(width: 1)
                 ],
               ),
             ],

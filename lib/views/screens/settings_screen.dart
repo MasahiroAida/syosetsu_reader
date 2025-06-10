@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../viewmodels/settings_viewmodel.dart';
+import '../../providers/theme_provider.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -17,6 +18,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _viewModel = SettingsViewModel();
     _viewModel.loadSettings();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // ThemeProviderをSettingsViewModelに設定
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    _viewModel.setThemeProvider(themeProvider);
   }
 
   @override
@@ -66,21 +75,135 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildThemeSettings(SettingsViewModel viewModel) {
-    return Column(
-      children: [
-        SwitchListTile(
-          title: const Text('ダークモード'),
-          subtitle: const Text('暗いテーマを使用します'),
-          value: viewModel.darkMode,
-          onChanged: (value) {
-            viewModel.updateDarkMode(value);
-          },
-          secondary: Icon(
-            viewModel.darkMode ? Icons.dark_mode : Icons.light_mode,
-            color: Colors.blue,
+    return Consumer<ThemeProvider>(
+      builder: (context, themeProvider, child) {
+        return Column(
+          children: [
+            // テーマ選択カード
+            Card(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          themeProvider.isDarkMode ? Icons.dark_mode : Icons.light_mode,
+                          color: Theme.of(context).primaryColor,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'テーマ設定',
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      '現在のテーマ: ${themeProvider.currentTheme.displayName}',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: AppThemeMode.values.map((mode) {
+                        final isSelected = themeProvider.currentTheme == mode;
+                        return Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: _buildThemeOption(
+                              context,
+                              mode,
+                              isSelected,
+                              () => themeProvider.setThemeMode(mode),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            
+            // 互換性のためのスイッチ（既存のUIを保持）
+            SwitchListTile(
+              title: const Text('ダークモード'),
+              subtitle: const Text('暗いテーマを使用します'),
+              value: themeProvider.isDarkMode,
+              onChanged: (value) {
+                viewModel.updateDarkMode(value);
+              },
+              secondary: Icon(
+                themeProvider.isDarkMode ? Icons.dark_mode : Icons.light_mode,
+                color: Theme.of(context).primaryColor,
+              ),
+            ),
+            
+            // colorId表示（デバッグ情報）
+            if (themeProvider.isInitialized)
+              ListTile(
+                leading: Icon(
+                  Icons.info_outline,
+                  color: Theme.of(context).primaryColor,
+                ),
+                title: const Text('テーマID'),
+                subtitle: Text('colorId: ${themeProvider.colorId}'),
+                dense: true,
+              ),
+          ],
+        );
+      },
+    );
+  }
+  
+  Widget _buildThemeOption(
+    BuildContext context,
+    AppThemeMode mode,
+    bool isSelected,
+    VoidCallback onTap,
+  ) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        decoration: BoxDecoration(
+          color: isSelected 
+            ? Theme.of(context).primaryColor.withOpacity(0.1)
+            : Colors.transparent,
+          border: Border.all(
+            color: isSelected 
+              ? Theme.of(context).primaryColor
+              : Theme.of(context).dividerColor,
+            width: isSelected ? 2 : 1,
           ),
+          borderRadius: BorderRadius.circular(8),
         ),
-      ],
+        child: Column(
+          children: [
+            Icon(
+              mode == AppThemeMode.dark ? Icons.dark_mode : Icons.light_mode,
+              color: isSelected 
+                ? Theme.of(context).primaryColor
+                : Theme.of(context).iconTheme.color,
+              size: 32,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              mode.displayName,
+              style: TextStyle(
+                color: isSelected 
+                  ? Theme.of(context).primaryColor
+                  : Theme.of(context).textTheme.bodyMedium?.color,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

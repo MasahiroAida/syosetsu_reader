@@ -4,6 +4,8 @@ import 'dart:async';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../../viewmodels/webview_viewmodel.dart';
 import '../../models/reading_history.dart';
+import '../../providers/theme_provider.dart';
+import '../../utils/theme_helper.dart';
 
 class WebViewScreen extends StatefulWidget {
   final String novelId;
@@ -47,6 +49,11 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     _initializeWebView();
     _viewModel.checkBookmarkStatus(widget.novelId);
     _loadFromHistory();
+    
+    // テーマ変更を監視してWebViewのテーマを同期
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _listenToThemeChanges();
+    });
   }
   
   // アプリのライフサイクル変化を監視
@@ -319,7 +326,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   /// WebView表示直後のスクロール処理をスケジュール
   void _scheduleInitialScroll() {
     // 複数のタイミングでスクロールを試行
-    _attemptScrollToPosition(200);   // 0.2秒後
+    _attemptScrollToPosition(0);   // 0.01秒後
   }
 
   /// 指定したディレイ後にスクロール位置への移動を試行
@@ -608,6 +615,12 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   void dispose() {
     print('WebViewScreen dispose開始');
     
+    // テーマ変更リスナーを削除
+    final themeProvider = ThemeHelper.of(context, listen: false);
+    if (themeProvider != null) {
+      themeProvider.removeListener(_onThemeChanged);
+    }
+    
     // ライフサイクル監視を削除
     WidgetsBinding.instance.removeObserver(this);
     
@@ -834,6 +847,28 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     }
   }
 
+  /// テーマ変更を監視してWebViewのテーマを自動同期
+  void _listenToThemeChanges() {
+    final themeProvider = ThemeHelper.of(context, listen: false);
+    if (themeProvider != null) {
+      themeProvider.addListener(_onThemeChanged);
+    }
+  }
+  
+  /// テーマ変更時のコールバック
+  void _onThemeChanged() {
+    if (!mounted || !isWebViewReady) return;
+    
+    final themeProvider = ThemeHelper.of(context, listen: false);
+    if (themeProvider != null) {
+      final colorId = themeProvider.colorId;
+      print('テーマ変更を検知: colorId=$colorId');
+      
+      // WebView内のテーマを自動更新
+      _setColorScheme(colorId);
+    }
+  }
+  
   /// dispose時の即座の保存処理
   void _executeImmediateSave() {
     // Future.microtaskを使用して非同期処理を同期的なコンテキストで実行
@@ -950,6 +985,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
             // changeイベントを発火
             const event = new Event('change', { bubbles: true });
             colorRadio.dispatchEvent(event);
+            colorRadio.click();
             return true;
           }
           return false;
@@ -1274,10 +1310,15 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                   leading: const Icon(Icons.brightness_6),
                   title: const Text('ライトモード'),
                   subtitle: const Text('明るい背景色に設定'),
-                  onTap: () {
+                  onTap: () async {
                     Navigator.pop(context);
                     if (isWebViewReady) {
+                      // WebView内のテーマを変更
                       _setColorScheme(1); // color1 = ライトモード
+                      
+                      // アプリ全体のテーマも変更
+                      await ThemeHelper.setColorScheme(context, 1);
+                      
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('ライトモードに変更しました')),
                       );
@@ -1292,10 +1333,15 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                   leading: const Icon(Icons.brightness_2),
                   title: const Text('ダークモード'),
                   subtitle: const Text('暗い背景色に設定'),
-                  onTap: () {
+                  onTap: () async {
                     Navigator.pop(context);
                     if (isWebViewReady) {
+                      // WebView内のテーマを変更
                       _setColorScheme(2); // color2 = ダークモード
+                      
+                      // アプリ全体のテーマも変更
+                      await ThemeHelper.setColorScheme(context, 2);
+                      
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('ダークモードに変更しました')),
                       );

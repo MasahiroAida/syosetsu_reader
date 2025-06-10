@@ -43,7 +43,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
 
   // AppBarとBottomNavigationBarの表示状態を管理
   bool _isControlsVisible = true;
-  bool _scrollListenerAdded = false;
+  bool _gestureListenersAdded = false;
   
   @override
   void initState() {
@@ -171,10 +171,14 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0x00000000))
-      ..addJavaScriptChannel('ScrollDetector', onMessageReceived: (JavaScriptMessage message) {
+      ..addJavaScriptChannel('GestureChannel', onMessageReceived: (JavaScriptMessage message) {
         if (message.message == 'scroll' && _isControlsVisible) {
           setState(() {
             _isControlsVisible = false;
+          });
+        } else if (message.message == 'tap' && !_isControlsVisible) {
+          setState(() {
+            _isControlsVisible = true;
           });
         }
       })
@@ -186,8 +190,8 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
             _currentUrl = url;
             print('ページ読み込み開始: $url');
 
-            // 新しいページ読み込みでスクロールリスナーをリセット
-            _scrollListenerAdded = false;
+            // 新しいページ読み込みでジェスチャーリスナーをリセット
+            _gestureListenersAdded = false;
             
             // 定期保存を停止
             _stopPeriodicScrollSave();
@@ -226,8 +230,8 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                 await _scrollToTitle();
                 _hasScrolledToTitle = true;
               }
-              if (!_scrollListenerAdded) {
-                _addScrollListener();
+              if (!_gestureListenersAdded) {
+                _addGestureListeners();
               }
             } catch (e) {
               print('ページ処理エラー: $e');
@@ -628,17 +632,20 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     }
   }
 
-  void _addScrollListener() {
+  void _addGestureListeners() {
     const script = '''
-      if(!window._flutterScrollListenerAdded) {
+      if(!window._flutterGestureListenersAdded) {
         window.addEventListener('scroll', function() {
-          ScrollDetector.postMessage('scroll');
+          GestureChannel.postMessage('scroll');
         });
-        window._flutterScrollListenerAdded = true;
+        window.addEventListener('click', function() {
+          GestureChannel.postMessage('tap');
+        });
+        window._flutterGestureListenersAdded = true;
       }
     ''';
     _controller.runJavaScript(script);
-    _scrollListenerAdded = true;
+    _gestureListenersAdded = true;
   }
 
   @override

@@ -61,7 +61,8 @@ class HistoryViewModel extends ChangeNotifier {
   /// URLからncodeを抽出
   String? extractNcodeFromUrl(String url) {
     try {
-      final regex = RegExp(r'https://ncode\.syosetu\.com/([a-zA-Z0-9]+)/?');
+      final regex =
+          RegExp(r'https://(?:ncode|novel18)\.syosetu\.com/([a-zA-Z0-9]+)/?');
       final match = regex.firstMatch(url);
       return match?.group(1)?.toLowerCase();
     } catch (e) {
@@ -71,11 +72,15 @@ class HistoryViewModel extends ChangeNotifier {
   }
 
   /// APIから小説詳細情報を取得
-  Future<Map<String, dynamic>?> fetchNovelDetails(String ncode) async {
+  Future<Map<String, dynamic>?> fetchNovelDetails(String ncode,
+      {bool r18 = false}) async {
     if (ncode.isEmpty || _isDisposed) return null;
     
     try {
-      final apiUrl = 'https://api.syosetu.com/novelapi/api?out=json&ncode=$ncode';
+      final baseUrl = r18
+          ? 'https://api.syosetu.com/novel18api/api'
+          : 'https://api.syosetu.com/novelapi/api';
+      final apiUrl = '$baseUrl?out=json&ncode=$ncode';
       final response = await http.get(Uri.parse(apiUrl));
       
       if (response.statusCode == 200 && !_isDisposed) {
@@ -164,7 +169,8 @@ class HistoryViewModel extends ChangeNotifier {
         final ncode = historyItem.novelId.toLowerCase();
         
         // APIから最新情報を取得
-        final novelDetails = await fetchNovelDetails(ncode);
+        final isR18 = historyItem.url.contains('novel18.syosetu.com');
+        final novelDetails = await fetchNovelDetails(ncode, r18: isR18);
         
         if (novelDetails != null && !_isDisposed) {
           final updatedTitle = getNovelTitle(novelDetails, fallbackTitle: historyItem.novelTitle);
@@ -263,7 +269,8 @@ class HistoryViewModel extends ChangeNotifier {
       final ncode = historyItem.novelId.toLowerCase();
       
       // APIから最新情報を取得
-      final novelDetails = await fetchNovelDetails(ncode);
+      final isR18 = historyItem.url.contains('novel18.syosetu.com');
+      final novelDetails = await fetchNovelDetails(ncode, r18: isR18);
       
       if (novelDetails != null && !_isDisposed) {
         final updatedTitle = getNovelTitle(novelDetails, fallbackTitle: historyItem.novelTitle);

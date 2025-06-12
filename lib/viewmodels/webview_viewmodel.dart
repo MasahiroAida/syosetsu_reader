@@ -61,7 +61,8 @@ class WebViewViewModel extends ChangeNotifier {
   }
 
   /// APIから小説詳細情報を取得
-  Future<Map<String, dynamic>?> fetchNovelDetails(String ncode) async {
+  Future<Map<String, dynamic>?> fetchNovelDetails(String ncode,
+      {bool r18 = false}) async {
     if (ncode.isEmpty) return null;
 
     // キャッシュがあればそれを返す
@@ -74,7 +75,10 @@ class WebViewViewModel extends ChangeNotifier {
       _isLoadingNovelDetails = true;
       notifyListeners();
 
-      final apiUrl = 'https://api.syosetu.com/novelapi/api?out=json&ncode=$ncode';
+      final baseUrl = r18
+          ? 'https://api.syosetu.com/novel18api/api'
+          : 'https://api.syosetu.com/novelapi/api';
+      final apiUrl = '$baseUrl?out=json&ncode=$ncode';
       print('小説詳細API呼び出し: $apiUrl');
 
       final response = await http.get(Uri.parse(apiUrl));
@@ -111,12 +115,13 @@ class WebViewViewModel extends ChangeNotifier {
   /// URLから小説詳細情報を取得
   Future<Map<String, dynamic>?> fetchNovelDetailsFromUrl(String url) async {
     final ncode = extractNcodeFromUrl(url);
+    final isR18 = url.contains('novel18.syosetu.com');
     if (ncode == null) {
       print('URLからncodeを抽出できませんでした: $url');
       return null;
     }
     
-    return await fetchNovelDetails(ncode);
+    return await fetchNovelDetails(ncode, r18: isR18);
   }
 
   /// 小説が連載かどうかを判定

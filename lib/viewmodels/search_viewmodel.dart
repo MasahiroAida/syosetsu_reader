@@ -3,7 +3,10 @@ import '../models/search_novel.dart';
 import '../services/api_service.dart';
 
 class SearchViewModel extends ChangeNotifier {
+  final bool isR18;
   final ApiService _apiService = ApiService();
+
+  SearchViewModel({this.isR18 = false});
   
   List<SearchNovel> _searchResults = [];
   bool _isLoading = false;
@@ -77,6 +80,7 @@ class SearchViewModel extends ChangeNotifier {
         type: _selectedType.isEmpty ? null : _selectedType,
         order: _selectedOrder,
         limit: 100,
+        r18: isR18,
       );
 
       _searchResults = results;

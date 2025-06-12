@@ -7,6 +7,7 @@ import '../models/review.dart';
 
 class ApiService {
   static const String naroApiBase = 'https://api.syosetu.com/novelapi/api/';
+  static const String naroR18ApiBase = 'https://api.syosetu.com/novel18api/api/';
   static const String rankingApiBase = 'https://api.syosetu.com/rank/rankget/';
   
   // キャッシュ管理
@@ -149,6 +150,7 @@ class ApiService {
     String? lastup,
     String order = 'new',
     int limit = 20,
+    bool r18 = false,
   }) async {
     try {
       final params = <String, String>{
@@ -181,7 +183,8 @@ class ApiService {
         params['lastup'] = lastup;
       }
 
-      final uri = Uri.parse(naroApiBase).replace(queryParameters: params);
+      final base = r18 ? naroR18ApiBase : naroApiBase;
+      final uri = Uri.parse(base).replace(queryParameters: params);
       print('リクエストURL: $uri');
       
       // HTTPヘッダーを設定

@@ -39,6 +39,9 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   bool _isSerialNovel = false; // 連載小説かどうか
   Map<String, dynamic>? _novelDetails; // API から取得した小説詳細情報
 
+  // 表示設定
+  double _fontSize = 16.0; // フォントサイズをスライダーで調整するための状態
+
   bool _isAppInBackground = false;
   
   @override
@@ -975,6 +978,31 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     }
   }
 
+  /// 指定したサイズで文字を設定
+  Future<void> _setFontSize(double size) async {
+    final script = '''
+      (function() {
+        try {
+          const content = document.querySelector('.p-novel__body') || document.querySelector('body');
+          if (content) {
+            content.style.fontSize = '${"$size"}px';
+            return true;
+          }
+          return false;
+        } catch (e) {
+          console.log('フォントサイズ設定エラー:', e);
+          return false;
+        }
+      })();
+    ''';
+
+    try {
+      await _controller.runJavaScript(script);
+    } catch (e) {
+      debugPrint('Error setting font size: $e');
+    }
+  }
+
   /// 配色設定
   Future<void> _setColorScheme(int colorId) async {
     final script = '''
@@ -1069,6 +1097,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
 
     try {
       await _controller.runJavaScript(script);
+      _fontSize = 16.0;
     } catch (e) {
       debugPrint('Error resetting display settings: $e');
     }
@@ -1260,53 +1289,45 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
       context: context,
       isScrollControlled: true,
       builder: (context) {
-        return SafeArea(
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  '表示設定',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 16),
-                ListTile(
-                  leading: const Icon(Icons.format_size),
-                  title: const Text('文字サイズ大'),
-                  subtitle: const Text('読みやすいサイズに調整'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    if (isWebViewReady) {
-                      _adjustFontSize(increase: true);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('文字サイズを大きくしました')),
-                      );
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('WebViewの読み込みが完了していません')),
-                      );
-                    }
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.format_size),
-                  title: const Text('文字サイズ小'),
-                  subtitle: const Text('コンパクトなサイズに調整'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    if (isWebViewReady) {
-                      _adjustFontSize(increase: false);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('文字サイズを小さくしました')),
-                      );
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('WebViewの読み込みが完了していません')),
-                      );
-                    }
-                  },
-                ),
+        double tempFontSize = _fontSize;
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return SafeArea(
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      '表示設定',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        const Icon(Icons.format_size),
+                        Expanded(
+                          child: Slider(
+                            value: tempFontSize,
+                            min: 10,
+                            max: 30,
+                            divisions: 20,
+                            label: tempFontSize.round().toString(),
+                            onChanged: (value) {
+                              setState(() {
+                                tempFontSize = value;
+                                _fontSize = value;
+                              });
+                              if (isWebViewReady) {
+                                _setFontSize(value);
+                              }
+                            },
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        Text('${tempFontSize.round()}'),
+                      ],
+                    ),
                 ListTile(
                   leading: const Icon(Icons.brightness_6),
                   title: const Text('ライトモード'),

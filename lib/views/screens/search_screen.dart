@@ -7,7 +7,8 @@ import '../../utils/theme_helper.dart';
 import 'webview_screen.dart';
 
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({Key? key}) : super(key: key);
+  final bool isR18;
+  const SearchScreen({Key? key, this.isR18 = false}) : super(key: key);
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -21,7 +22,7 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void initState() {
     super.initState();
-    _viewModel = SearchViewModel();
+    _viewModel = SearchViewModel(isR18: widget.isR18);
   }
 
   @override
@@ -41,6 +42,23 @@ class _SearchScreenState extends State<SearchScreen> {
             onPanUpdate: (_) {}, // スワイプを無効化
             child: Scaffold(
               appBar: AppBar(
+                leading: widget.isR18
+                    ? IconButton(
+                        icon: const Icon(Icons.language),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const WebViewScreen(
+                                novelId: 'noc',
+                                title: 'ノクターン',
+                                url: 'https://noc.syosetu.com/top/top/',
+                              ),
+                            ),
+                          );
+                        },
+                      )
+                    : null,
                 title: const Text('小説検索'),
                 actions: [
                   IconButton(
@@ -334,7 +352,9 @@ class _SearchScreenState extends State<SearchScreen> {
                   builder: (context) => WebViewScreen(
                     novelId: novel.ncode,
                     title: novel.title,
-                    url: 'https://ncode.syosetu.com/${novel.ncode.toLowerCase()}/',
+                    url: widget.isR18
+                        ? 'https://novel18.syosetu.com/${novel.ncode.toLowerCase()}/'
+                        : 'https://ncode.syosetu.com/${novel.ncode.toLowerCase()}/',
                   ),
                 ),
               );

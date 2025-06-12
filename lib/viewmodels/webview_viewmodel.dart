@@ -46,7 +46,7 @@ class WebViewViewModel extends ChangeNotifier {
       // https://ncode.syosetu.com/n9893km/ または
       // https://ncode.syosetu.com/n9893km/1/ など
       final regex =
-          RegExp(r'https://ncode\.syosetu\.com/([a-zA-Z0-9]+)/?.*');
+          RegExp(r'https://(?:ncode|novel18)\.syosetu\.com/([a-zA-Z0-9]+)/?.*');
       final match = regex.firstMatch(url);
       
       if (match != null) {
@@ -61,7 +61,8 @@ class WebViewViewModel extends ChangeNotifier {
   }
 
   /// APIから小説詳細情報を取得
-  Future<Map<String, dynamic>?> fetchNovelDetails(String ncode) async {
+  Future<Map<String, dynamic>?> fetchNovelDetails(String ncode,
+      {bool r18 = false}) async {
     if (ncode.isEmpty) return null;
 
     // キャッシュがあればそれを返す
@@ -74,7 +75,10 @@ class WebViewViewModel extends ChangeNotifier {
       _isLoadingNovelDetails = true;
       notifyListeners();
 
-      final apiUrl = 'https://api.syosetu.com/novelapi/api?out=json&ncode=$ncode';
+      final baseUrl = r18
+          ? 'https://api.syosetu.com/novel18api/api'
+          : 'https://api.syosetu.com/novelapi/api';
+      final apiUrl = '$baseUrl?out=json&ncode=$ncode';
       print('小説詳細API呼び出し: $apiUrl');
 
       final response = await http.get(Uri.parse(apiUrl));
@@ -111,12 +115,13 @@ class WebViewViewModel extends ChangeNotifier {
   /// URLから小説詳細情報を取得
   Future<Map<String, dynamic>?> fetchNovelDetailsFromUrl(String url) async {
     final ncode = extractNcodeFromUrl(url);
+    final isR18 = url.contains('novel18.syosetu.com');
     if (ncode == null) {
       print('URLからncodeを抽出できませんでした: $url');
       return null;
     }
     
-    return await fetchNovelDetails(ncode);
+    return await fetchNovelDetails(ncode, r18: isR18);
   }
 
   /// 小説が連載かどうかを判定
@@ -291,7 +296,7 @@ class WebViewViewModel extends ChangeNotifier {
     try {
       // なろうの小説ページかどうかチェック
       final novelRegex =
-          RegExp(r'https://ncode\.syosetu\.com/([a-zA-Z0-9]+)(/[0-9]+)?/?.*');
+          RegExp(r'https://(?:ncode|novel18)\.syosetu\.com/([a-zA-Z0-9]+)(/[0-9]+)?/?.*');
       return novelRegex.hasMatch(url);
     } catch (e) {
       print('小説URL判定エラー: $e');
@@ -317,7 +322,7 @@ class WebViewViewModel extends ChangeNotifier {
   int _extractChapterFromUrl(String url) {
     try {
       final regex =
-          RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
+          RegExp(r'https://(?:ncode|novel18)\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
       final match = regex.firstMatch(url);
       
       if (match != null) {
@@ -473,7 +478,7 @@ class WebViewViewModel extends ChangeNotifier {
   /// URLから小説種別を判定するヘルパーメソッド
   bool isSerialNovelFromUrl(String url) {
     final serialRegex =
-        RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
+        RegExp(r'https://(?:ncode|novel18)\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
     return serialRegex.hasMatch(url);
   }
 
@@ -646,7 +651,7 @@ class WebViewViewModel extends ChangeNotifier {
       // URLから章番号を抽出を試行
       if (isSerialNovelFromUrl(currentUrl)) {
         final regex =
-            RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
+            RegExp(r'https://(?:ncode|novel18)\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
         final match = regex.firstMatch(currentUrl);
         if (match != null) {
           return int.tryParse(match.group(2)!) ?? 1;

@@ -337,7 +337,7 @@ class ApiService {
       }
     } catch (e) {
       print('ランキング取得エラー: $e');
-      print('リクエストURL: $uri');
+      // print('リクエストURL: $uri');
     }
     return [];
   }

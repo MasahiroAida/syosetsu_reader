@@ -1324,119 +1324,121 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                             },
                           ),
                         ),
-                        SizedBox(width: 8),
+                        const SizedBox(width: 8),
                         Text('${tempFontSize.round()}'),
                       ],
                     ),
-                ListTile(
-                  leading: const Icon(Icons.brightness_6),
-                  title: const Text('ライトモード'),
-                  subtitle: const Text('明るい背景色に設定'),
-                  onTap: () async {
-                    Navigator.pop(context);
-                    if (isWebViewReady) {
-                      // WebView内のテーマを変更
-                      _setColorScheme(1); // color1 = ライトモード
-                      
-                      // アプリ全体のテーマも変更
-                      await ThemeHelper.setThemeMode(
-                        context,
-                        AppThemeMode.light,
-                      );
-                      
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('ライトモードに変更しました')),
-                      );
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('WebViewの読み込みが完了していません')),
-                      );
-                    }
-                  },
+                    ListTile(
+                      leading: const Icon(Icons.brightness_6),
+                      title: const Text('ライトモード'),
+                      subtitle: const Text('明るい背景色に設定'),
+                      onTap: () async {
+                        Navigator.pop(context);
+                        if (isWebViewReady) {
+                          // WebView内のテーマを変更
+                          _setColorScheme(1); // color1 = ライトモード
+                          
+                          // アプリ全体のテーマも変更
+                          await ThemeHelper.setThemeMode(
+                            context,
+                            AppThemeMode.light,
+                          );
+                          
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('ライトモードに変更しました')),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('WebViewの読み込みが完了していません')),
+                          );
+                        }
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.brightness_2),
+                      title: const Text('ダークモード'),
+                      subtitle: const Text('暗い背景色に設定'),
+                      onTap: () async {
+                        Navigator.pop(context);
+                        if (isWebViewReady) {
+                          // WebView内のテーマを変更
+                          _setColorScheme(2); // color2 = ダークモード
+                          
+                          // アプリ全体のテーマも変更
+                          await ThemeHelper.setThemeMode(
+                            context,
+                            AppThemeMode.dark,
+                          );
+                          
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('ダークモードに変更しました')),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('WebViewの読み込みが完了していません')),
+                          );
+                        }
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.line_weight),
+                      title: const Text('行間広く'),
+                      subtitle: const Text('読みやすい行間に調整'),
+                      onTap: () {
+                        Navigator.pop(context);
+                        if (isWebViewReady) {
+                          _adjustLineHeight(increase: true);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('行間を広くしました')),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('WebViewの読み込みが完了していません')),
+                          );
+                        }
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.line_weight),
+                      title: const Text('行間狭く'),
+                      subtitle: const Text('コンパクトな行間に調整'),
+                      onTap: () {
+                        Navigator.pop(context);
+                        if (isWebViewReady) {
+                          _adjustLineHeight(increase: false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('行間を狭くしました')),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('WebViewの読み込みが完了していません')),
+                          );
+                        }
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.refresh),
+                      title: const Text('設定リセット'),
+                      subtitle: const Text('表示設定を初期状態に戻す'),
+                      onTap: () {
+                        Navigator.pop(context);
+                        if (isWebViewReady) {
+                          _resetDisplaySettings();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('表示設定をリセットしました')),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('WebViewの読み込みが完了していません')),
+                          );
+                        }
+                      },
+                    ),
+                  ],
                 ),
-                ListTile(
-                  leading: const Icon(Icons.brightness_2),
-                  title: const Text('ダークモード'),
-                  subtitle: const Text('暗い背景色に設定'),
-                  onTap: () async {
-                    Navigator.pop(context);
-                    if (isWebViewReady) {
-                      // WebView内のテーマを変更
-                      _setColorScheme(2); // color2 = ダークモード
-                      
-                      // アプリ全体のテーマも変更
-                      await ThemeHelper.setThemeMode(
-                        context,
-                        AppThemeMode.dark,
-                      );
-                      
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('ダークモードに変更しました')),
-                      );
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('WebViewの読み込みが完了していません')),
-                      );
-                    }
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.line_weight),
-                  title: const Text('行間広く'),
-                  subtitle: const Text('読みやすい行間に調整'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    if (isWebViewReady) {
-                      _adjustLineHeight(increase: true);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('行間を広くしました')),
-                      );
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('WebViewの読み込みが完了していません')),
-                      );
-                    }
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.line_weight),
-                  title: const Text('行間狭く'),
-                  subtitle: const Text('コンパクトな行間に調整'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    if (isWebViewReady) {
-                      _adjustLineHeight(increase: false);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('行間を狭くしました')),
-                      );
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('WebViewの読み込みが完了していません')),
-                      );
-                    }
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.refresh),
-                  title: const Text('設定リセット'),
-                  subtitle: const Text('表示設定を初期状態に戻す'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    if (isWebViewReady) {
-                      _resetDisplaySettings();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('表示設定をリセットしました')),
-                      );
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('WebViewの読み込みが完了していません')),
-                      );
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );

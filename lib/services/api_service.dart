@@ -251,9 +251,6 @@ class ApiService {
         'out': 'json',
         'rtype': '${formattedDate}-$rtype',
       };
-      if (genre != null && genre > 0) {
-        queryParams['genre'] = genre.toString();
-      }
       final uri = Uri.parse(rankingApiBase).replace(queryParameters: queryParams);
       print('ランキングリクエストURL: $uri');
       
@@ -308,15 +305,20 @@ class ApiService {
         for (int i = 0; i < rankingData.length; i++) {
           final rankingItem = rankingData[i];
           final ncode = rankingItem['ncode']?.toString();
-          
+
           if (ncode == null || ncode.isEmpty) continue;
-          
+
           // 対応する詳細情報を検索
           final detailItem = novelDetails.firstWhere(
             (detail) => detail['ncode'] == ncode,
             orElse: () => {},
           );
-          
+
+          // ジャンルフィルタ
+          if (genre != null && genre > 0 && detailItem['genre'] != genre) {
+            continue;
+          }
+
           // ランキング情報と詳細情報をマージ
           final merged = Map<String, dynamic>.from(detailItem);
           merged['pt'] = rankingItem['pt'];

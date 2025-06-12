@@ -37,31 +37,40 @@ class _SearchScreenState extends State<SearchScreen> {
       value: _viewModel,
       child: Consumer<SearchViewModel>(
         builder: (context, viewModel, child) {
-          return Scaffold(
-            appBar: AppBar(
-              title: const Text('小説検索'),
-              actions: [
-                IconButton(
-                  icon: Icon(viewModel.showFilters ? Icons.filter_list_off : Icons.filter_list),
-                  onPressed: () {
-                    viewModel.toggleFilters();
-                  },
-                ),
-              ],
-            ),
-            body: Column(
-              children: [
-                // 検索フィールド
-                _buildSearchFields(viewModel),
-                
-                // フィルター設定
-                if (viewModel.showFilters) _buildFilters(viewModel),
-                
-                // 検索結果
-                Expanded(
-                  child: _buildSearchResults(viewModel),
-                ),
-              ],
+          return GestureDetector(
+            onPanUpdate: (_) {}, // スワイプを無効化
+            child: Scaffold(
+              appBar: AppBar(
+                title: const Text('小説検索'),
+                actions: [
+                  IconButton(
+                    icon: Icon(viewModel.showFilters ? Icons.filter_list_off : Icons.filter_list),
+                    onPressed: () {
+                      viewModel.toggleFilters();
+                    },
+                  ),
+                ],
+              ),
+              body: Column(
+                children: [
+                  // 検索フィールド
+                  _buildSearchFields(viewModel),
+                  
+                  // フィルター設定
+                  if (viewModel.showFilters) 
+                    Expanded(
+                      flex: 0,
+                      child: SingleChildScrollView(
+                        child: _buildFilters(viewModel),
+                      ),
+                    ),
+                  
+                  // 検索結果
+                  Expanded(
+                    child: _buildSearchResults(viewModel),
+                  ),
+                ],
+              ),
             ),
           );
         },
@@ -84,25 +93,43 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          TextField(
-            controller: _excludeController,
-            decoration: const InputDecoration(
-              labelText: '除外キーワード',
-              hintText: '除外したいキーワード',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.remove_circle),
-            ),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: viewModel.isLoading ? null : () => _performSearch(viewModel),
-            child: viewModel.isLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('検索'),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _excludeController,
+                  decoration: const InputDecoration(
+                    labelText: '除外キーワード',
+                    hintText: '除外したいキーワード',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.remove_circle),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                height: 56, // TextFieldの高さに合わせる
+                child: ElevatedButton(
+                  onPressed: viewModel.isLoading ? null : () => _performSearch(viewModel),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  child: viewModel.isLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('検索'),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -124,23 +151,40 @@ class _SearchScreenState extends State<SearchScreen> {
           // ジャンル選択
           const Text('ジャンル', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            children: ApiService.genres.entries.map((entry) {
-              return FilterChip(
-                label: Text(entry.value, style: const TextStyle(fontSize: 12)),
-                selected: viewModel.selectedGenres.contains(entry.key),
-                onSelected: (selected) {
-                  final newGenres = Set<int>.from(viewModel.selectedGenres);
-                  if (selected) {
-                    newGenres.add(entry.key);
-                  } else {
-                    newGenres.remove(entry.key);
-                  }
-                  viewModel.updateGenres(newGenres);
-                },
-              );
-            }).toList(),
+          Container(
+            height: 160,
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            padding: const EdgeInsets.all(8),
+            child: SingleChildScrollView(
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: ApiService.genres.entries.map((entry) {
+                  return FilterChip(
+                    label: Text(
+                      entry.value.replaceAll('〔', '\n').replaceAll('〕', ''),
+                      style: const TextStyle(fontSize: 10),
+                      textAlign: TextAlign.center,
+                    ),
+                    selected: viewModel.selectedGenres.contains(entry.key),
+                    onSelected: (selected) {
+                      final newGenres = Set<int>.from(viewModel.selectedGenres);
+                      if (selected) {
+                        newGenres.add(entry.key);
+                      } else {
+                        newGenres.remove(entry.key);
+                      }
+                      viewModel.updateGenres(newGenres);
+                    },
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    labelPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                  );
+                }).toList(),
+              ),
+            ),
           ),
           
           const SizedBox(height: 16),
@@ -148,23 +192,36 @@ class _SearchScreenState extends State<SearchScreen> {
           // 作品に含まれる要素
           const Text('作品に含まれる要素', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            children: NovelKeywords.keywords.map((keyword) {
-              return FilterChip(
-                label: Text(keyword, style: const TextStyle(fontSize: 12)),
-                selected: viewModel.selectedKeywords.contains(keyword),
-                onSelected: (selected) {
-                  final newKeywords = Set<String>.from(viewModel.selectedKeywords);
-                  if (selected) {
-                    newKeywords.add(keyword);
-                  } else {
-                    newKeywords.remove(keyword);
-                  }
-                  viewModel.updateKeywords(newKeywords);
-                },
-              );
-            }).toList(),
+          Container(
+            height: 120,
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            padding: const EdgeInsets.all(8),
+            child: SingleChildScrollView(
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: NovelKeywords.keywords.map((keyword) {
+                  return FilterChip(
+                    label: Text(keyword, style: const TextStyle(fontSize: 11)),
+                    selected: viewModel.selectedKeywords.contains(keyword),
+                    onSelected: (selected) {
+                      final newKeywords = Set<String>.from(viewModel.selectedKeywords);
+                      if (selected) {
+                        newKeywords.add(keyword);
+                      } else {
+                        newKeywords.remove(keyword);
+                      }
+                      viewModel.updateKeywords(newKeywords);
+                    },
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    labelPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+                  );
+                }).toList(),
+              ),
+            ),
           ),
           
           const SizedBox(height: 16),

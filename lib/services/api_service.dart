@@ -91,13 +91,42 @@ class ApiService {
     try {
       // ncodeをハイフンで繋げる
       final ncodeParam = ncodes.map((ncode) => ncode.toLowerCase()).join('-');
+      
+      // HTTPヘッダーを設定
+      final headers = {
+        'User-Agent': 'Syosetsu Reader App/1.0',
+        'Accept': 'application/json',
+        'Accept-Encoding': 'identity',
+      };
+      
       final response = await http.get(
         Uri.parse('${naroApiBase}?out=json&lim=300&ncode=${ncodeParam}'),
+        headers: headers,
+      ).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw Exception('小説詳細リクエストタイムアウト');
+        },
       );
 
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+        // レスポンスの内容をチェック
+        final responseBody = response.body.trim();
+        if (responseBody.isEmpty) {
+          print('小説詳細取得エラー: 空のレスポンス');
+          return [];
+        }
+        
+        // JSONとして有効かチェック
+        if (!responseBody.startsWith('{') && !responseBody.startsWith('[')) {
+          print('小説詳細取得エラー: JSONではないレスポンス: ${responseBody.substring(0, 100)}');
+          return [];
+        }
+        
+        final data = json.decode(responseBody);
         return data is List ? data.skip(1).toList() : [];
+      } else {
+        print('小説詳細取得エラー: HTTP ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
       print('小説詳細取得エラー: $e');
@@ -119,7 +148,6 @@ class ApiService {
     try {
       final params = <String, String>{
         'out': 'json',
-        'gzip': '5',
         'lim': limit.toString(),
         'order': order,
       };
@@ -149,13 +177,47 @@ class ApiService {
       }
 
       final uri = Uri.parse(naroApiBase).replace(queryParameters: params);
-      final response = await http.get(uri);
+      print('リクエストURL: $uri');
+      
+      // HTTPヘッダーを設定
+      final headers = {
+        'User-Agent': 'Syosetsu Reader App/1.0',
+        'Accept': 'application/json',
+        'Accept-Encoding': 'identity', // gzipを無効化
+      };
+      
+      final response = await http.get(uri, headers: headers).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw Exception('リクエストタイムアウト');
+        },
+      );
+      print('HTTPステータス: ${response.statusCode}');
+      print('レスポンスヘッダー: ${response.headers}');
 
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+        // レスポンスの内容をチェック
+        final responseBody = response.body.trim();
+        print('レスポンス長: ${responseBody.length}');
+        print('レスポンス内容（最初の200文字）: ${responseBody.length > 200 ? responseBody.substring(0, 200) : responseBody}');
+        
+        if (responseBody.isEmpty) {
+          print('小説検索エラー: 空のレスポンス');
+          return [];
+        }
+        
+        // JSONとして有効かチェック
+        if (!responseBody.startsWith('{') && !responseBody.startsWith('[')) {
+          print('小説検索エラー: JSONではないレスポンス: ${responseBody.length > 100 ? responseBody.substring(0, 100) : responseBody}');
+          return [];
+        }
+        
+        final data = json.decode(responseBody);
         final List<dynamic> novelData = data is List ? data.skip(1).toList() : [];
         
         return novelData.map((e) => SearchNovel.fromMap(e)).toList();
+      } else {
+        print('小説検索エラー: HTTP ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
       print('小説検索エラー: $e');
@@ -179,12 +241,41 @@ class ApiService {
     final formattedDate = _getFormattedDateForRtype(rtype);
 
     try {
+      final requestUrl = '${rankingApiBase}?out=json&rtype=${formattedDate}-${rtype}';
+      print('ランキングリクエストURL: $requestUrl');
+      
+      // HTTPヘッダーを設定
+      final headers = {
+        'User-Agent': 'Syosetsu Reader App/1.0',
+        'Accept': 'application/json',
+        'Accept-Encoding': 'identity',
+      };
+      
       final response = await http.get(
-        Uri.parse('${rankingApiBase}?out=json&rtype=${formattedDate}-${rtype}'),
+        Uri.parse(requestUrl),
+        headers: headers,
+      ).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw Exception('ランキングリクエストタイムアウト');
+        },
       );
 
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+        // レスポンスの内容をチェック
+        final responseBody = response.body.trim();
+        if (responseBody.isEmpty) {
+          print('ランキング取得エラー: 空のレスポンス');
+          return [];
+        }
+        
+        // JSONとして有効かチェック
+        if (!responseBody.startsWith('{') && !responseBody.startsWith('[')) {
+          print('ランキング取得エラー: JSONではないレスポンス: ${responseBody.substring(0, 100)}');
+          return [];
+        }
+        
+        final data = json.decode(responseBody);
         final List<dynamic> rankingData = data is List ? data.skip(1).toList() : [];
         
         if (rankingData.isEmpty) return [];
@@ -228,10 +319,12 @@ class ApiService {
         _cacheTimestamps[cacheKey] = DateTime.now();
         
         return mergedData.map((e) => RankingNovel.fromMap(e)).toList();
+      } else {
+        print('ランキング取得エラー: HTTP ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
       print('ランキング取得エラー: $e');
-      print('${rankingApiBase}?out=json&rtype=${formattedDate}-${rtype}');
+      print('リクエストURL: ${rankingApiBase}?out=json&rtype=${formattedDate}-${rtype}');
     }
     return [];
   }

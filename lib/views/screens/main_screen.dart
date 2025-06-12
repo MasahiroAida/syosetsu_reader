@@ -38,6 +38,7 @@ class _MainScreenState extends State<MainScreen> {
     return Scaffold(
       body: PageView(
         controller: _pageController,
+        physics: _selectedIndex == 3 ? const NeverScrollableScrollPhysics() : null, // 検索画面ではスワイプ無効
         onPageChanged: (index) {
           setState(() {
             _selectedIndex = index;

@@ -16,14 +16,18 @@ class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
   final PageController _pageController = PageController();
 
+  bool _isR18Search = false;
+  int _searchTapCount = 0;
+  DateTime? _lastSearchTap;
+
   final GlobalKey<ReadingListScreenState> _readingListKey = GlobalKey();
 
   // 各画面のインスタンスを一度だけ作成して保持
-  late final List<Widget> _screens = [
+  late List<Widget> _screens = [
     ReadingListScreen(key: _readingListKey),
     const RankingScreen(),
     const ReviewScreen(),
-    const SearchScreen(),
+    SearchScreen(isR18: _isR18Search),
     const SettingsScreen(),
   ];
 
@@ -50,6 +54,28 @@ class _MainScreenState extends State<MainScreen> {
         type: BottomNavigationBarType.fixed,
         currentIndex: _selectedIndex,
         onTap: (index) {
+          final now = DateTime.now();
+
+          if (index == 3) {
+            if (_lastSearchTap != null && now.difference(_lastSearchTap!) < const Duration(seconds: 2)) {
+              _searchTapCount++;
+            } else {
+              _searchTapCount = 1;
+            }
+            _lastSearchTap = now;
+
+            if (_searchTapCount >= 5) {
+              _searchTapCount = 0;
+              _isR18Search = !_isR18Search;
+              _screens[3] = SearchScreen(isR18: _isR18Search);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(_isR18Search ? 'R18検索モードに切替' : '通常検索モードに戻りました')),
+              );
+            }
+          } else {
+            _searchTapCount = 0;
+          }
+
           setState(() {
             _selectedIndex = index;
           });

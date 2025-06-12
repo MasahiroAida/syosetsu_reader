@@ -159,7 +159,7 @@ class DatabaseHelper {
 
   bool isSerialNovelFromUrl(String url) {
     final serialRegex =
-        RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
+        RegExp(r'https://(?:ncode|novel18)\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
     return serialRegex.hasMatch(url);
   }
 
@@ -167,7 +167,7 @@ class DatabaseHelper {
     if (!isSerialNovelFromUrl(url)) return 0;
 
     final regex =
-        RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
+        RegExp(r'https://(?:ncode|novel18)\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
     final match = regex.firstMatch(url);
 
     if (match != null) {
@@ -176,8 +176,9 @@ class DatabaseHelper {
     return 0;
   }
 
-  String buildNovelUrl(String novelId, int chapter) {
-    final baseUrl = 'https://ncode.syosetu.com/${novelId.toLowerCase()}/';
+  String buildNovelUrl(String novelId, int chapter, {bool r18 = false}) {
+    final domain = r18 ? 'novel18' : 'ncode';
+    final baseUrl = 'https://$domain.syosetu.com/${novelId.toLowerCase()}/';
     if (chapter > 0) {
       return '$baseUrl$chapter/';
     } else {

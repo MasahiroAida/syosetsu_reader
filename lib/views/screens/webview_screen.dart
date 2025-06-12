@@ -31,6 +31,8 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   double _scrollPosition = 180.0;
   String? _currentUrl;
 
+  bool _useNovel18Domain = false;
+
   // WebViewの初期化状態を管理する変数を追加
   bool _isWebViewInitialized = false;
   bool _isWebViewDisplayed = false; // WebViewが表示されたタイミングを追跡
@@ -51,6 +53,9 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     _viewModel = WebViewViewModel();
     _initializeWebView();
     _viewModel.checkBookmarkStatus(widget.novelId);
+    if (widget.url != null && widget.url!.contains('novel18.syosetu.com')) {
+      _useNovel18Domain = true;
+    }
     _loadFromHistory();
     
     // テーマ変更を監視してWebViewのテーマを同期
@@ -85,13 +90,14 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
 
   bool _isSerialNovelFromUrl(String url) {
     final serialRegex =
-        RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
+        RegExp(r'https://(?:ncode|novel18)\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
     return serialRegex.hasMatch(url);
   }
 
   /// 適切なURLを構築
   String _buildNovelUrl(int chapter) {
-    final baseUrl = 'https://ncode.syosetu.com/${widget.novelId.toLowerCase()}/';
+    final domain = _useNovel18Domain ? 'novel18' : 'ncode';
+    final baseUrl = 'https://$domain.syosetu.com/${widget.novelId.toLowerCase()}/';
     
     if (_isSerialNovel && chapter > 0) {
       return '${baseUrl}$chapter/';
@@ -109,7 +115,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     }
 
     final regex =
-        RegExp(r'https://ncode\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
+        RegExp(r'https://(?:ncode|novel18)\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
     final match = regex.firstMatch(url);
 
     if (match != null) {
@@ -176,6 +182,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
             _viewModel.updateLoadingState(true);
             _hasScrolledToTitle = false;
             _currentUrl = url;
+            _useNovel18Domain = url.contains('novel18.syosetu.com');
             print('ページ読み込み開始: $url');
             
             // 定期保存を停止
@@ -351,14 +358,13 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     if (history != null) {
       _currentChapter = history.currentChapter;
       _scrollPosition = history.scrollPosition ?? 0.0;
-      
-      // 保存されたURLから小説の種類を判定（後でAPIからも取得）
-      if (history.url != null) {
-        _isSerialNovel = _isSerialNovelFromUrl(history.url!);
+
+      if (history.url.isNotEmpty) {
+        _isSerialNovel = _isSerialNovelFromUrl(history.url);
+        _useNovel18Domain = history.url.contains('novel18.syosetu.com');
       }
-      
-      // 適切なURLを構築して読み込み
-      final targetUrl = widget.url ?? _buildNovelUrl(_currentChapter);
+
+      final targetUrl = widget.url ?? history.url;
       _controller.loadRequest(Uri.parse(targetUrl));
     } else {
       // 履歴がない場合は初期URLを読み込み
@@ -760,18 +766,19 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
             : widget.title;
             
         final success = await viewModel.addBookmark(
-          widget.novelId, 
+          widget.novelId,
           actualTitle,
           currentChapter: _currentChapter,
           scrollPosition: currentScrollPosition,
           isSerialNovel: _isSerialNovel,
           novelData: _novelDetails, // API情報を渡す
         );
-        
+
         if (mounted && success) {
+          await _addToHistory();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(_isSerialNovel 
+              content: Text(_isSerialNovel
                   ? 'ブックマークに追加しました (第${_currentChapter}章)'
                   : 'ブックマークに追加しました'),
               backgroundColor: Colors.green,

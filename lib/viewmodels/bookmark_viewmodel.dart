@@ -354,15 +354,17 @@ class BookmarkViewModel extends ChangeNotifier {
     }
   }
 
-  String buildChapterUrl(String novelId, int currentChapter) {
+  String buildChapterUrl(String novelId, int currentChapter, {bool r18 = false}) {
+    final domain = r18 ? 'novel18' : 'ncode';
     if (currentChapter > 0) {
-      return 'https://ncode.syosetu.com/${novelId.toLowerCase()}/$currentChapter/';
+      return 'https://$domain.syosetu.com/${novelId.toLowerCase()}/$currentChapter/';
     } else {
-      return 'https://ncode.syosetu.com/${novelId.toLowerCase()}/';
+      return 'https://$domain.syosetu.com/${novelId.toLowerCase()}/';
     }
   }
 
-  String buildHomeUrl(String novelId) {
-    return 'https://ncode.syosetu.com/${novelId.toLowerCase()}/';
+  String buildHomeUrl(String novelId, {bool r18 = false}) {
+    final domain = r18 ? 'novel18' : 'ncode';
+    return 'https://$domain.syosetu.com/${novelId.toLowerCase()}/';
   }
 }

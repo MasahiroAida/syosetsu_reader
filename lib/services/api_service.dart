@@ -51,6 +51,11 @@ class ApiService {
     final formatter = DateFormat('yyyyMMdd');
     
     switch (rtype) {
+      case 'q':
+        // 四半期ランキング：当四半期の初日
+        final quarter = ((calcTime.month - 1) ~/ 3) * 3 + 1;
+        final firstDayOfQuarter = DateTime(calcTime.year, quarter, 1);
+        return formatter.format(firstDayOfQuarter);
       case 'm':
         // 月別ランキング：今月の1日
         final firstDayOfMonth = DateTime(calcTime.year, calcTime.month, 1);
@@ -226,8 +231,9 @@ class ApiService {
   }
 
   // ランキング取得
-  Future<List<RankingNovel>> getRanking({String rtype = 'd'}) async {
-    final cacheKey = 'ranking_$rtype';
+  Future<List<RankingNovel>> getRanking({String rtype = 'd', int? genre}) async {
+    final genreKey = genre != null ? genre.toString() : 'all';
+    final cacheKey = 'ranking_${rtype}_$genreKey';
     
     // キャッシュチェック
     if (_cache.containsKey(cacheKey) && _cacheTimestamps.containsKey(cacheKey)) {
@@ -241,8 +247,15 @@ class ApiService {
     final formattedDate = _getFormattedDateForRtype(rtype);
 
     try {
-      final requestUrl = '${rankingApiBase}?out=json&rtype=${formattedDate}-${rtype}';
-      print('ランキングリクエストURL: $requestUrl');
+      final queryParams = <String, String>{
+        'out': 'json',
+        'rtype': '${formattedDate}-$rtype',
+      };
+      if (genre != null && genre > 0) {
+        queryParams['genre'] = genre.toString();
+      }
+      final uri = Uri.parse(rankingApiBase).replace(queryParameters: queryParams);
+      print('ランキングリクエストURL: $uri');
       
       // HTTPヘッダーを設定
       final headers = {
@@ -252,7 +265,7 @@ class ApiService {
       };
       
       final response = await http.get(
-        Uri.parse(requestUrl),
+        uri,
         headers: headers,
       ).timeout(
         const Duration(seconds: 30),
@@ -324,7 +337,7 @@ class ApiService {
       }
     } catch (e) {
       print('ランキング取得エラー: $e');
-      print('リクエストURL: ${rankingApiBase}?out=json&rtype=${formattedDate}-${rtype}');
+      print('リクエストURL: $uri');
     }
     return [];
   }

@@ -10,7 +10,11 @@ class RankingViewModel extends ChangeNotifier {
     'd': true,
     'w': true,
     'm': true,
+    'q': true,
   };
+  int _selectedGenre = 0;
+
+  int get selectedGenre => _selectedGenre;
 
   Map<String, List<RankingNovel>> get rankings => _rankings;
   Map<String, bool> get loadingStates => _loadingStates;
@@ -19,7 +23,7 @@ class RankingViewModel extends ChangeNotifier {
   List<RankingNovel> getRanking(String type) => _rankings[type] ?? [];
 
   Future<void> loadRankings() async {
-    final types = ['d', 'w', 'm'];
+    final types = ['d', 'w', 'm', 'q'];
     
     for (String type in types) {
       await loadRankingByType(type);
@@ -31,7 +35,10 @@ class RankingViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final ranking = await _apiService.getRanking(rtype: type);
+      final ranking = await _apiService.getRanking(
+        rtype: type,
+        genre: _selectedGenre == 0 ? null : _selectedGenre,
+      );
       _rankings[type] = ranking;
     } catch (e) {
       print('ランキング取得エラー: $e');
@@ -44,5 +51,10 @@ class RankingViewModel extends ChangeNotifier {
 
   Future<void> refreshRanking(String type) async {
     await loadRankingByType(type);
+  }
+
+  void updateGenre(int genre) {
+    _selectedGenre = genre;
+    loadRankings();
   }
 }

@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../viewmodels/ranking_viewmodel.dart';
+import '../../services/api_service.dart';
 import 'webview_screen.dart';
 
 class RankingScreen extends StatefulWidget {
@@ -20,7 +21,7 @@ class _RankingScreenState extends State<RankingScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _viewModel = RankingViewModel();
     _viewModel.loadRankings();
   }
@@ -40,12 +41,36 @@ class _RankingScreenState extends State<RankingScreen>
           return Scaffold(
             appBar: AppBar(
               title: const Text('ランキング'),
+              actions: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 8.0),
+                  child: DropdownButton<int>(
+                    value: viewModel.selectedGenre,
+                    underline: const SizedBox(),
+                    dropdownColor: Theme.of(context).colorScheme.surface,
+                    items: [
+                      const DropdownMenuItem(value: 0, child: Text('すべて')),
+                      ...ApiService.genres.entries.map((entry) => DropdownMenuItem(
+                            value: entry.key,
+                            child: Text(entry.value,
+                                overflow: TextOverflow.ellipsis),
+                          ))
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        viewModel.updateGenre(value);
+                      }
+                    },
+                  ),
+                ),
+              ],
               bottom: TabBar(
                 controller: _tabController,
                 tabs: const [
                   Tab(text: '日間'),
                   Tab(text: '週間'),
                   Tab(text: '月間'),
+                  Tab(text: '四半期'),
                 ],
               ),
             ),
@@ -55,6 +80,7 @@ class _RankingScreenState extends State<RankingScreen>
                 _buildRankingList('d', viewModel),
                 _buildRankingList('w', viewModel),
                 _buildRankingList('m', viewModel),
+                _buildRankingList('q', viewModel),
               ],
             ),
           );

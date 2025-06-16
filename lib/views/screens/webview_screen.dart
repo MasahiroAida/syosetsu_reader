@@ -41,6 +41,11 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   bool _isWebViewInitialized = false;
   bool _isWebViewDisplayed = false; // WebViewが表示されたタイミングを追跡
 
+  bool _isJavaScriptReady = false; // JavaScript実行可能性
+  Timer? _initializationTimer; // 初期化確認タイマー
+  int _initializationAttempts = 0; // 初期化試行回数
+  static const int maxInitializationAttempts = 5; // 最大試行回数
+
   // ページ読み込み開始時刻を記録し、読み込み完了までの時間を計測する
   DateTime? _pageLoadStartTime;
 
@@ -69,6 +74,9 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _listenToThemeChanges();
     });
+
+    // 定期的な初期化状態チェックを開始
+    _startInitializationCheck();
   }
   
   // アプリのライフサイクル変化を監視
@@ -203,10 +211,15 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
             _pageLoadStartTime = DateTime.now();
             _pageLoadCompleted = false;
             print('ページ読み込み開始: $url at $_pageLoadStartTime');
-            
+
             // 定期保存を停止
             _stopPeriodicScrollSave();
-            
+
+            // 初期化状態をリセット
+            _isJavaScriptReady = false;
+            _initializationAttempts = 0;
+            _initializationTimer?.cancel();
+
             _extractChapterFromUrl(url);
             
             // 新しいURLに対して小説詳細情報を取得
@@ -217,13 +230,18 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
               _scheduleInitialScroll();
             }
           },
-          onPageFinished: (String url) {
-            _handlePageFinished(url);
+          onPageFinished: (String url) async {
+            print('ページ読み込み完了: $url');
+            await _handlePageFinished(url);
           },
           onWebResourceError: (WebResourceError error) {
             print('WebView リソースエラー: ${error.description}');
-            _isWebViewInitialized = false;
-            _stopPeriodicScrollSave();
+
+            if (!error.description.contains('ERR_BLOCKED_BY_ORB')) {
+              _isWebViewInitialized = false;
+              _isJavaScriptReady = false;
+              _stopPeriodicScrollSave();
+            }
           },
           onNavigationRequest: (NavigationRequest request) {
             print('ナビゲーションリクエスト: ${request.url}');
@@ -538,19 +556,26 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
 
     if (!_isWebViewInitialized) {
       _isWebViewInitialized = true;
-      print('WebView初期化完了');
+      print('WebView基本初期化完了');
+    }
 
-      // 初期化完了後に定期保存を開始
+    await _testJavaScriptExecution();
+
+    if (_isJavaScriptReady) {
       _startPeriodicScrollSave();
+    } else {
+      _startInitializationCheck();
     }
 
     await _updateNavigationState();
 
     if (kDebugMode && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('WebViewの読み込みが完了しました'),
-          duration: Duration(seconds: 1),
+        SnackBar(
+          content: Text(_isJavaScriptReady
+              ? 'WebViewの読み込みが完了しました'
+              : 'WebViewの読み込み中です...'),
+          duration: const Duration(seconds: 1),
         ),
       );
     }
@@ -561,7 +586,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
       // 小説URLの場合は閲覧履歴に自動登録・更新
       await _autoAddToHistory(url);
 
-      if (!_hasScrolledToTitle) {
+      if (!_hasScrolledToTitle && _isJavaScriptReady) {
         await _scrollToTitle();
         _hasScrolledToTitle = true;
       }
@@ -641,8 +666,8 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     }
   }
 
- // WebViewが初期化されているかチェックするヘルパーメソッド
-  bool get isWebViewReady => _isWebViewInitialized && mounted;
+  // WebViewが初期化されているかチェックするヘルパーメソッド
+  bool get isWebViewReady => _isWebViewInitialized && _isJavaScriptReady && mounted;
 
   // 安全にJavaScriptを実行するヘルパーメソッド
   Future<void> _safeExecuteJavaScript(String script, {String? errorMessage}) async {
@@ -656,6 +681,147 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     } catch (e) {
       print('${errorMessage ?? "JavaScript実行エラー"}: $e');
     }
+  }
+
+  /// 定期的な初期化状態チェック
+  void _startInitializationCheck() {
+    _initializationTimer?.cancel();
+    _initializationTimer =
+        Timer.periodic(const Duration(seconds: 2), (timer) => _checkInitializationStatus());
+  }
+
+  Future<void> _checkInitializationStatus() async {
+    if (!mounted || _initializationAttempts >= maxInitializationAttempts) {
+      _initializationTimer?.cancel();
+      return;
+    }
+
+    _initializationAttempts++;
+
+    try {
+      await _testJavaScriptExecution();
+
+      if (_isJavaScriptReady) {
+        print('WebView初期化完全完了 (${_initializationAttempts}回目)');
+        _initializationTimer?.cancel();
+      }
+    } catch (e) {
+      print('初期化チェック失敗 (${_initializationAttempts}回目): $e');
+      if (_initializationAttempts >= maxInitializationAttempts) {
+        print('最大試行回数に達したため強制再初期化を実行');
+        await _forceReinitialize();
+      }
+    }
+  }
+
+  Future<void> _testJavaScriptExecution() async {
+    const testScript = '''
+      (function() {
+        try {
+          if (typeof document === 'undefined' || typeof window === 'undefined') return false;
+          if (typeof window.scrollTo !== 'function') return false;
+          if (document.readyState !== 'complete') return false;
+          const testDiv = document.createElement('div');
+          if (!testDiv) return false;
+          console.log('JavaScript実行テスト: 成功');
+          return true;
+        } catch (e) {
+          console.log('JavaScript実行テスト: エラー', e);
+          return false;
+        }
+      })();
+    ''';
+
+    try {
+      final result = await _controller.runJavaScriptReturningResult(testScript);
+      _isJavaScriptReady = result.toString() == 'true';
+
+      if (_isJavaScriptReady) {
+        print('JavaScript実行テスト: 成功');
+      } else {
+        print('JavaScript実行テスト: 失敗 - $result');
+      }
+    } catch (e) {
+      print('JavaScript実行テスト例外: $e');
+      _isJavaScriptReady = false;
+    }
+  }
+
+  Future<void> _forceReinitialize() async {
+    try {
+      print('WebView強制再初期化開始');
+
+      _isWebViewInitialized = false;
+      _isJavaScriptReady = false;
+      _initializationAttempts = 0;
+
+      await _controller.reload();
+
+      print('WebView強制再初期化完了');
+    } catch (e) {
+      print('強制再初期化エラー: $e');
+    }
+  }
+
+  Future<void> _manualInitializationCheck() async {
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Text('WebViewの状態を確認中...'),
+            ],
+          ),
+        ),
+      );
+
+      _initializationAttempts = 0;
+      await _testJavaScriptExecution();
+
+      Navigator.of(context).pop();
+
+      if (_isJavaScriptReady) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('WebViewの初期化が完了しました'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        _showReinitializationDialog();
+      }
+    } catch (e) {
+      Navigator.of(context).pop();
+      print('手動初期化チェックエラー: $e');
+      _showReinitializationDialog();
+    }
+  }
+
+  void _showReinitializationDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('WebView初期化エラー'),
+        content: const Text('WebViewの初期化に失敗しました。\nページを再読み込みしますか？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('キャンセル'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _forceReinitialize();
+            },
+            child: const Text('再読み込み'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -673,6 +839,9 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     
     // 定期保存タイマーを停止
     _stopPeriodicScrollSave();
+
+    // 初期化タイマーを停止
+    _initializationTimer?.cancel();
     
     // 同期的に保存処理を実行（disposeは同期的なので）
     if (isWebViewReady) {
@@ -1347,6 +1516,43 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                       '表示設定',
                       style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
+                    Container(
+                      margin: const EdgeInsets.symmetric(vertical: 8),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: isWebViewReady ? Colors.green.withOpacity(0.1) : Colors.orange.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isWebViewReady ? Colors.green : Colors.orange,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            isWebViewReady ? Icons.check_circle : Icons.warning,
+                            color: isWebViewReady ? Colors.green : Colors.orange,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              isWebViewReady
+                                ? 'WebView準備完了'
+                                : 'WebView準備中... (試行: $_initializationAttempts/$maxInitializationAttempts)',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isWebViewReady ? Colors.green : Colors.orange,
+                              ),
+                            ),
+                          ),
+                          if (!isWebViewReady)
+                            TextButton(
+                              onPressed: _manualInitializationCheck,
+                              child: const Text('再確認', style: TextStyle(fontSize: 12)),
+                            ),
+                        ],
+                      ),
+                    ),
                     const SizedBox(height: 16),
                     Row(
                       children: [
@@ -1376,12 +1582,14 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                     ListTile(
                       leading: const Icon(Icons.brightness_6),
                       title: const Text('ライトモード'),
-                      subtitle: const Text('明るい背景色に設定'),
-                      onTap: () async {
+                      subtitle: Text(isWebViewReady
+                          ? '明るい背景色に設定'
+                          : 'WebView準備完了後に使用可能'),
+                      enabled: isWebViewReady,
+                      onTap: isWebViewReady ? () async {
                         Navigator.pop(context);
-                        if (isWebViewReady) {
-                          // WebView内のテーマを変更
-                          _setColorScheme(1); // color1 = ライトモード
+                        // WebView内のテーマを変更
+                        _setColorScheme(1); // color1 = ライトモード
                           
                           // アプリ全体のテーマも変更
                           await ThemeHelper.setThemeMode(
@@ -1392,22 +1600,19 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('ライトモードに変更しました')),
                           );
-                        } else {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('WebViewの読み込みが完了していません')),
-                          );
-                        }
-                      },
+                      } : null,
                     ),
                     ListTile(
                       leading: const Icon(Icons.brightness_2),
                       title: const Text('ダークモード'),
-                      subtitle: const Text('暗い背景色に設定'),
-                      onTap: () async {
+                      subtitle: Text(isWebViewReady
+                          ? '暗い背景色に設定'
+                          : 'WebView準備完了後に使用可能'),
+                      enabled: isWebViewReady,
+                      onTap: isWebViewReady ? () async {
                         Navigator.pop(context);
-                        if (isWebViewReady) {
-                          // WebView内のテーマを変更
-                          _setColorScheme(2); // color2 = ダークモード
+                        // WebView内のテーマを変更
+                        _setColorScheme(2); // color2 = ダークモード
                           
                           // アプリ全体のテーマも変更
                           await ThemeHelper.setThemeMode(
@@ -1418,12 +1623,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('ダークモードに変更しました')),
                           );
-                        } else {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('WebViewの読み込みが完了していません')),
-                          );
-                        }
-                      },
+                      } : null,
                     ),
                     ListTile(
                       leading: const Icon(Icons.line_weight),

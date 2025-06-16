@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter/foundation.dart';
 import '../../viewmodels/webview_viewmodel.dart';
 import '../../models/reading_history.dart';
 import '../../providers/theme_provider.dart';
@@ -211,7 +212,16 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
             }
             
             _updateNavigationState();
-            
+
+            if (kDebugMode && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('WebViewの読み込みが完了しました'),
+                  duration: Duration(seconds: 1),
+                ),
+              );
+            }
+
             try {
               await _updateChapterFromUrl(url);
               

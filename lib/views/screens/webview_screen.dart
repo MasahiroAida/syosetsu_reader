@@ -40,6 +40,8 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   // WebViewの初期化状態を管理する変数を追加
   bool _isWebViewInitialized = false;
   bool _isWebViewDisplayed = false; // WebViewが表示されたタイミングを追跡
+  // 読み込み開始から一定時間後に初期化を保証するためのタイマー
+  Timer? _initTimeoutTimer;
 
   // ページ読み込み開始時刻を記録し、読み込み完了までの時間を計測する
   DateTime? _pageLoadStartTime;
@@ -203,6 +205,18 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
             _pageLoadStartTime = DateTime.now();
             _pageLoadCompleted = false;
             print('ページ読み込み開始: $url at $_pageLoadStartTime');
+
+            // 3秒後にWebView初期化を保証
+            _initTimeoutTimer?.cancel();
+            _initTimeoutTimer = Timer(const Duration(seconds: 3), () {
+              if (!_isWebViewInitialized && mounted) {
+                setState(() {
+                  _isWebViewInitialized = true;
+                });
+                _startPeriodicScrollSave();
+                print('初期化タイマーによりWebViewを初期化');
+              }
+            });
             
             // 定期保存を停止
             _stopPeriodicScrollSave();
@@ -539,6 +553,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     if (!_isWebViewInitialized) {
       _isWebViewInitialized = true;
       print('WebView初期化完了');
+      _initTimeoutTimer?.cancel();
 
       // 初期化完了後に定期保存を開始
       _startPeriodicScrollSave();
@@ -673,6 +688,10 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     
     // 定期保存タイマーを停止
     _stopPeriodicScrollSave();
+
+    // 初期化タイマーをキャンセル
+    _initTimeoutTimer?.cancel();
+    _initTimeoutTimer = null;
     
     // 同期的に保存処理を実行（disposeは同期的なので）
     if (isWebViewReady) {

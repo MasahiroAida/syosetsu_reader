@@ -145,7 +145,6 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
 
       // API から小説詳細情報を取得
       final novelDetails = await _viewModel.fetchNovelDetailsFromUrl(url);
-      _extractChapterFromUrl(url);
       if (novelDetails != null) {
         _novelDetails = novelDetails;
         

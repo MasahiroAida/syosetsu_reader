@@ -46,6 +46,10 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   double _fontSize = 16.0; // フォントサイズをスライダーで調整するための状態
 
   bool _isAppInBackground = false;
+
+  // AppBarとBottomNavigationBarの表示状態を管理
+  bool _isControlsVisible = true;
+  bool _gestureListenersAdded = false;
   
   @override
   void initState() {
@@ -177,6 +181,17 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0x00000000))
+      ..addJavaScriptChannel('GestureChannel', onMessageReceived: (JavaScriptMessage message) {
+        if (message.message == 'scroll' && _isControlsVisible) {
+          setState(() {
+            _isControlsVisible = false;
+          });
+        } else if (message.message == 'tap' && !_isControlsVisible) {
+          setState(() {
+            _isControlsVisible = true;
+          });
+        }
+      })
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (String url) async {
@@ -185,6 +200,9 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
             _currentUrl = url;
             _useNovel18Domain = url.contains('novel18.syosetu.com');
             print('ページ読み込み開始: $url');
+
+            // 新しいページ読み込みでジェスチャーリスナーをリセット
+            _gestureListenersAdded = false;
             
             // 定期保存を停止
             _stopPeriodicScrollSave();
@@ -231,6 +249,9 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
               if (!_hasScrolledToTitle) {
                 await _scrollToTitle();
                 _hasScrolledToTitle = true;
+              }
+              if (!_gestureListenersAdded) {
+                _addGestureListeners();
               }
             } catch (e) {
               print('ページ処理エラー: $e');
@@ -630,6 +651,22 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     }
   }
 
+  void _addGestureListeners() {
+    const script = '''
+      if(!window._flutterGestureListenersAdded) {
+        window.addEventListener('scroll', function() {
+          GestureChannel.postMessage('scroll');
+        });
+        window.addEventListener('click', function() {
+          GestureChannel.postMessage('tap');
+        });
+        window._flutterGestureListenersAdded = true;
+      }
+    ''';
+    _controller.runJavaScript(script);
+    _gestureListenersAdded = true;
+  }
+
   @override
   void dispose() {
     print('WebViewScreen dispose開始');
@@ -671,30 +708,45 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
               : widget.title;
               
           return Scaffold(
-            appBar: AppBar(
-              toolbarHeight: 45,
-              title: Text(
-                displayTitle,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12.0, fontWeight: FontWeight.bold)
-              ),
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.refresh),
-                  onPressed: () => _controller.reload(),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.more_vert),
-                  onPressed: () => _showMoreOptions(viewModel),
-                ),
-              ],
-            ),
+            appBar: _isControlsVisible
+                ? AppBar(
+                    toolbarHeight: 45,
+                    title: Text(
+                      displayTitle,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 12.0, fontWeight: FontWeight.bold),
+                    ),
+                    actions: [
+                      IconButton(
+                        icon: const Icon(Icons.refresh),
+                        onPressed: () => _controller.reload(),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.more_vert),
+                        onPressed: () => _showMoreOptions(viewModel),
+                      ),
+                    ],
+                  )
+                : null,
             body: SafeArea(
-              child: WebViewWidget(controller: _controller),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  if (!_isControlsVisible) {
+                    setState(() {
+                      _isControlsVisible = true;
+                    });
+                  }
+                },
+                child: WebViewWidget(controller: _controller),
+              ),
             ),
-            bottomNavigationBar: SafeArea(
-              child: _buildBottomNavigationBar(viewModel),
-            ),
+            bottomNavigationBar: _isControlsVisible
+                ? SafeArea(
+                    child: _buildBottomNavigationBar(viewModel),
+                  )
+                : null,
           );
         },
       ),

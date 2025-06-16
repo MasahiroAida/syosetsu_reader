@@ -32,6 +32,9 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   double _scrollPosition = 180.0;
   String? _currentUrl;
 
+  // 現在読み込んでいるページで onPageFinished が発火済みかどうかを管理
+  bool _pageLoadCompleted = false;
+
   bool _useNovel18Domain = false;
 
   // WebViewの初期化状態を管理する変数を追加
@@ -185,6 +188,12 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
             // ページ読み込み進捗をログに出力
             // 0-100 の範囲で進捗が通知される
             print('ページ読み込み進捗: $progress%');
+
+            // 進捗が100%に到達したら onPageFinished 相当の処理を実行
+            if (progress == 100 && !_pageLoadCompleted) {
+              final url = _currentUrl ?? '';
+              _handlePageFinished(url);
+            }
           },
           onPageStarted: (String url) async {
             _viewModel.updateLoadingState(true);
@@ -192,6 +201,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
             _currentUrl = url;
             _useNovel18Domain = url.contains('novel18.syosetu.com');
             _pageLoadStartTime = DateTime.now();
+            _pageLoadCompleted = false;
             print('ページ読み込み開始: $url at $_pageLoadStartTime');
             
             // 定期保存を停止
@@ -207,43 +217,8 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
               _scheduleInitialScroll();
             }
           },
-          onPageFinished: (String url) async {
-            final loadTime = DateTime.now().difference(_pageLoadStartTime ?? DateTime.now());
-            print("ページ読み込み完了: $url (" + loadTime.inMilliseconds.toString() + "ms)");
-            _viewModel.updateLoadingState(false);
-            
-            if (!_isWebViewInitialized) {
-              _isWebViewInitialized = true;
-              print('WebView初期化完了');
-              
-              // 初期化完了後に定期保存を開始
-              _startPeriodicScrollSave();
-            }
-            
-            _updateNavigationState();
-
-            if (kDebugMode && mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('WebViewの読み込みが完了しました'),
-                  duration: Duration(seconds: 1),
-                ),
-              );
-            }
-
-            try {
-              await _updateChapterFromUrl(url);
-              
-              // 小説URLの場合は閲覧履歴に自動登録・更新
-              await _autoAddToHistory(url);
-              
-              if (!_hasScrolledToTitle) {
-                await _scrollToTitle();
-                _hasScrolledToTitle = true;
-              }
-            } catch (e) {
-              print('ページ処理エラー: $e');
-            }
+          onPageFinished: (String url) {
+            _handlePageFinished(url);
           },
           onWebResourceError: (WebResourceError error) {
             print('WebView リソースエラー: ${error.description}');
@@ -548,6 +523,50 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
       _viewModel.updateNavigationState(canGoBack, canGoForward);
     } catch (e) {
       print('ナビゲーション状態更新エラー: $e');
+    }
+  }
+
+  /// ページの読み込み完了時の共通処理
+  Future<void> _handlePageFinished(String url) async {
+    if (_pageLoadCompleted) return;
+    _pageLoadCompleted = true;
+
+    final loadTime =
+        DateTime.now().difference(_pageLoadStartTime ?? DateTime.now());
+    print("ページ読み込み完了: $url (" + loadTime.inMilliseconds.toString() + "ms)");
+    _viewModel.updateLoadingState(false);
+
+    if (!_isWebViewInitialized) {
+      _isWebViewInitialized = true;
+      print('WebView初期化完了');
+
+      // 初期化完了後に定期保存を開始
+      _startPeriodicScrollSave();
+    }
+
+    await _updateNavigationState();
+
+    if (kDebugMode && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('WebViewの読み込みが完了しました'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+    }
+
+    try {
+      await _updateChapterFromUrl(url);
+
+      // 小説URLの場合は閲覧履歴に自動登録・更新
+      await _autoAddToHistory(url);
+
+      if (!_hasScrolledToTitle) {
+        await _scrollToTitle();
+        _hasScrolledToTitle = true;
+      }
+    } catch (e) {
+      print('ページ処理エラー: $e');
     }
   }
 

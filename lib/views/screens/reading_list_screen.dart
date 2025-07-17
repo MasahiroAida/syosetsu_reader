@@ -3,7 +3,7 @@ import '../tabs/bookmark_tab.dart';
 import '../tabs/history_tab.dart';
 
 class ReadingListScreen extends StatefulWidget {
-  const ReadingListScreen({Key? key}) : super(key: key);
+  const ReadingListScreen({super.key});
 
   @override
   State<ReadingListScreen> createState() => ReadingListScreenState();

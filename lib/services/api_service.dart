@@ -11,8 +11,8 @@ class ApiService {
   static const String rankingApiBase = 'https://api.syosetu.com/rank/rankget/';
   
   // キャッシュ管理
-  static Map<String, dynamic> _cache = {};
-  static Map<String, DateTime> _cacheTimestamps = {};
+  static final Map<String, dynamic> _cache = {};
+  static final Map<String, DateTime> _cacheTimestamps = {};
   static const Duration cacheExpiry = Duration(minutes: 30);
 
   // ジャンル定義
@@ -106,7 +106,7 @@ class ApiService {
       };
       
       final response = await http.get(
-        Uri.parse('${naroApiBase}?out=json&lim=300&ncode=${ncodeParam}'),
+        Uri.parse('$naroApiBase?out=json&lim=300&ncode=$ncodeParam'),
         headers: headers,
       ).timeout(
         const Duration(seconds: 30),
@@ -252,7 +252,7 @@ class ApiService {
     try {
       final queryParams = <String, String>{
         'out': 'json',
-        'rtype': '${formattedDate}-$rtype',
+        'rtype': '$formattedDate-$rtype',
       };
       final uri = Uri.parse(rankingApiBase).replace(queryParameters: queryParams);
       print('ランキングリクエストURL: $uri');

@@ -347,7 +347,7 @@ class WebViewViewModel extends ChangeNotifier {
       if (currentChapter == 0) {
         print('読書履歴を目次/短編として更新: $novelId');
       } else {
-        print('読書履歴のチャプターを更新: $novelId -> 第${currentChapter}章');
+        print('読書履歴のチャプターを更新: $novelId -> 第$currentChapter章');
       }
     } catch (e) {
       print('読書履歴チャプター更新エラー: $e');
@@ -366,7 +366,7 @@ class WebViewViewModel extends ChangeNotifier {
       if (currentChapter == 0) {
         print('目次/短編の読書位置を更新: $novelId -> scroll: $scrollPosition');
       } else {
-        print('連載の読書位置を更新: $novelId -> 第${currentChapter}章, scroll: $scrollPosition');
+        print('連載の読書位置を更新: $novelId -> 第$currentChapter章, scroll: $scrollPosition');
       }
     } catch (e) {
       print('読書位置更新エラー: $e');
@@ -383,7 +383,7 @@ class WebViewViewModel extends ChangeNotifier {
         if (currentChapter == 0) {
           print('ブックマークを目次/短編として更新: $novelId');
         } else {
-          print('ブックマークのチャプターを更新: $novelId -> 第${currentChapter}章');
+          print('ブックマークのチャプターを更新: $novelId -> 第$currentChapter章');
         }
       }
     } catch (e) {
@@ -399,7 +399,7 @@ class WebViewViewModel extends ChangeNotifier {
       if (currentChapter == 0) {
         print('目次/短編ブックマーク位置を更新: $novelId -> scroll: $scrollPosition');
       } else {
-        print('連載ブックマーク位置を更新: $novelId -> 第${currentChapter}章, scroll: $scrollPosition');
+        print('連載ブックマーク位置を更新: $novelId -> 第$currentChapter章, scroll: $scrollPosition');
       }
     } catch (e) {
       print('ブックマーク位置更新エラー: $e');
@@ -497,7 +497,7 @@ class WebViewViewModel extends ChangeNotifier {
     if (!isSerialNovel || chapter == 0) {
       return '目次/短編';
     }
-    return '第${chapter}章';
+    return '第$chapter章';
   }
 
   /// 履歴を削除
@@ -638,7 +638,7 @@ class WebViewViewModel extends ChangeNotifier {
       final title = await controller.runJavaScriptReturningResult('''
         document.querySelector('.p-novel__title')?.innerText || document.title;
       ''');
-      return title?.toString();
+      return title.toString();
     } catch (e) {
       print('タイトル取得エラー: $e');
       return null;
@@ -678,7 +678,7 @@ class WebViewViewModel extends ChangeNotifier {
         })();
       ''');
   
-      final chapterString = chapterText?.toString() ?? '0';
+      final chapterString = chapterText.toString() ?? '0';
       return int.tryParse(chapterString) ?? 0;
     } catch (e) {
       print('章番号取得エラー: $e');

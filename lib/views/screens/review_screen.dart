@@ -5,7 +5,7 @@ import '../../utils/theme_helper.dart';
 import 'webview_screen.dart';
 
 class ReviewScreen extends StatefulWidget {
-  const ReviewScreen({Key? key}) : super(key: key);
+  const ReviewScreen({super.key});
 
   @override
   State<ReviewScreen> createState() => _ReviewScreenState();

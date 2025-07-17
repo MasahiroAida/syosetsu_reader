@@ -6,7 +6,7 @@ import 'search_screen.dart';
 import 'settings_screen.dart';
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({Key? key}) : super(key: key);
+  const MainScreen({super.key});
 
   @override
   State<MainScreen> createState() => _MainScreenState();
@@ -23,7 +23,7 @@ class _MainScreenState extends State<MainScreen> {
   final GlobalKey<ReadingListScreenState> _readingListKey = GlobalKey();
 
   // 各画面のインスタンスを一度だけ作成して保持
-  late List<Widget> _screens = [
+  late final List<Widget> _screens = [
     ReadingListScreen(key: _readingListKey),
     const RankingScreen(),
     const ReviewScreen(),

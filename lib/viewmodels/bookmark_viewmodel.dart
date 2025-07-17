@@ -261,7 +261,7 @@ class BookmarkViewModel extends ChangeNotifier {
     
     // クールタイムチェック
     if (isApiUpdateOnCooldown) {
-      print('API更新がクールタイム中です。残り${cooldownRemainingSeconds}秒');
+      print('API更新がクールタイム中です。残り$cooldownRemainingSeconds秒');
       return false;
     }
     
@@ -275,7 +275,7 @@ class BookmarkViewModel extends ChangeNotifier {
     
     // クールタイムチェック
     if (isApiUpdateOnCooldown) {
-      print('API更新がクールタイム中です。残り${cooldownRemainingSeconds}秒');
+      print('API更新がクールタイム中です。残り$cooldownRemainingSeconds秒');
       return false;
     }
     

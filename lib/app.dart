@@ -6,7 +6,7 @@ import 'views/screens/webview_screen.dart';
 import 'views/screens/search_screen.dart';
 
 class NovelReaderApp extends StatelessWidget {
-  const NovelReaderApp({Key? key}) : super(key: key);
+  const NovelReaderApp({super.key});
 
   @override
   Widget build(BuildContext context) {

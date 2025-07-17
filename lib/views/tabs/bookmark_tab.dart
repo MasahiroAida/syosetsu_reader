@@ -4,7 +4,7 @@ import '../../viewmodels/bookmark_viewmodel.dart';
 import '../screens/webview_screen.dart';
 
 class BookmarkTab extends StatefulWidget {
-  const BookmarkTab({Key? key}) : super(key: key);
+  const BookmarkTab({super.key});
 
   @override
   State<BookmarkTab> createState() => BookmarkTabState();
@@ -241,7 +241,7 @@ class BookmarkTabState extends State<BookmarkTab>
                           border: Border.all(color: Colors.red[300]!, width: 1),
                         ),
                         child: Text(
-                          '未読${unread}話',
+                          '未読$unread話',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.red[700],
@@ -251,9 +251,9 @@ class BookmarkTabState extends State<BookmarkTab>
                       ),
                     ],
                   ] else ...[
-                    Text(
+                    const Text(
                       '目次/短編',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 14,
                         color: Colors.grey,
                       ),
@@ -279,17 +279,17 @@ class BookmarkTabState extends State<BookmarkTab>
               // スクロール位置情報（あれば表示）
               if (bookmark.scrollPosition != null && bookmark.scrollPosition! > 0) ...[
                 const SizedBox(height: 4),
-                Row(
+                const Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.vertical_align_center,
                       size: 16,
                       color: Colors.blue,
                     ),
-                    const SizedBox(width: 4),
+                    SizedBox(width: 4),
                     Text(
                       '読書位置保存済み',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
                         color: Colors.blue,
                       ),
@@ -307,13 +307,13 @@ class BookmarkTabState extends State<BookmarkTab>
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: () => _openNovel(context, bookmark),
-                      icon: Icon(
+                      icon: const Icon(
                         Icons.play_arrow,
                         size: 18,
                       ),
-                      label: Text(
+                      label: const Text(
                         '続きを読む',
-                        style: const TextStyle(fontSize: 14),
+                        style: TextStyle(fontSize: 14),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: null,

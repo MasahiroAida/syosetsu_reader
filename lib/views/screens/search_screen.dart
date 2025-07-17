@@ -8,7 +8,7 @@ import 'webview_screen.dart';
 
 class SearchScreen extends StatefulWidget {
   final bool isR18;
-  const SearchScreen({Key? key, this.isR18 = false}) : super(key: key);
+  const SearchScreen({super.key, this.isR18 = false});
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();

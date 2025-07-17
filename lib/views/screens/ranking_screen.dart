@@ -1,4 +1,3 @@
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -7,7 +6,7 @@ import '../../services/api_service.dart';
 import 'webview_screen.dart';
 
 class RankingScreen extends StatefulWidget {
-  const RankingScreen({Key? key}) : super(key: key);
+  const RankingScreen({super.key});
 
   @override
   State<RankingScreen> createState() => _RankingScreenState();
@@ -149,7 +148,7 @@ class _RankingScreenState extends State<RankingScreen>
                   Text('作者: ${novel.author}'),
                   Text('ジャンル: ${novel.genre}'),
                   if (novel.novelType != 1) // 連載中以外のタイプ
-                    Text('短編小説')
+                    const Text('短編小説')
                   else
                     if (novel.end == 1)
                       Text('連載中 ${novel.general_all_no}話 ${novel.length}文字')

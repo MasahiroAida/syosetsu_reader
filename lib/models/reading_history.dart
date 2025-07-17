@@ -56,7 +56,7 @@ class ReadingHistory extends HiveObject {
   }
 
   String get chapterDisplay =>
-      isSerialNovel && currentChapter > 0 ? '第${currentChapter}章' : '目次/短編';
+      isSerialNovel && currentChapter > 0 ? '第$currentChapter章' : '目次/短編';
 
   String get timeAgo {
     final difference = DateTime.now().difference(lastViewed);

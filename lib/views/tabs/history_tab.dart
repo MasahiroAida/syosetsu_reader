@@ -5,7 +5,7 @@ import '../../viewmodels/history_viewmodel.dart';
 import '../screens/webview_screen.dart';
 
 class HistoryTab extends StatefulWidget {
-  const HistoryTab({Key? key}) : super(key: key);
+  const HistoryTab({super.key});
 
   @override
   State<HistoryTab> createState() => HistoryTabState();
@@ -358,7 +358,7 @@ class HistoryTabState extends State<HistoryTab>
                       child: LinearProgressIndicator(
                         value: item.currentChapter / item.totalChapters,
                         backgroundColor: Colors.grey[300],
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
+                        valueColor: const AlwaysStoppedAnimation<Color>(Colors.green),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -377,17 +377,17 @@ class HistoryTabState extends State<HistoryTab>
               // スクロール位置情報（あれば表示）
               if (item.scrollPosition != null && item.scrollPosition! > 0) ...[
                 const SizedBox(height: 4),
-                Row(
+                const Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.vertical_align_center,
                       size: 16,
                       color: Colors.green,
                     ),
-                    const SizedBox(width: 4),
+                    SizedBox(width: 4),
                     Text(
                       '読書位置保存済み',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
                         color: Colors.green,
                       ),

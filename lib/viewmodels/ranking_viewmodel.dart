@@ -5,8 +5,8 @@ import '../services/api_service.dart';
 class RankingViewModel extends ChangeNotifier {
   final ApiService _apiService = ApiService();
   
-  Map<String, List<RankingNovel>> _rankings = {};
-  Map<String, bool> _loadingStates = {
+  final Map<String, List<RankingNovel>> _rankings = {};
+  final Map<String, bool> _loadingStates = {
     'd': true,
     'w': true,
     'm': true,

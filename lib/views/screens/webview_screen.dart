@@ -14,11 +14,11 @@ class WebViewScreen extends StatefulWidget {
   final String? url;
 
   const WebViewScreen({
-    Key? key,
+    super.key,
     required this.novelId,
     required this.title,
     this.url,
-  }) : super(key: key);
+  });
 
   @override
   State<WebViewScreen> createState() => _WebViewScreenState();
@@ -115,7 +115,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     final baseUrl = 'https://$domain.syosetu.com/${widget.novelId.toLowerCase()}/';
     
     if (_isSerialNovel && chapter > 0) {
-      return '${baseUrl}$chapter/';
+      return '$baseUrl$chapter/';
     } else {
       return baseUrl; // 目次または短編の場合
     }
@@ -196,12 +196,6 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
             // ページ読み込み進捗をログに出力
             // 0-100 の範囲で進捗が通知される
             print('ページ読み込み進捗: $progress%');
-
-            // 進捗が100%に到達したら onPageFinished 相当の処理を実行
-            if (progress == 100 && !_pageLoadCompleted) {
-              final url = _currentUrl ?? '';
-              _handlePageFinished(url);
-            }
           },
           onPageStarted: (String url) async {
             _viewModel.updateLoadingState(true);
@@ -306,7 +300,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
       );
       
       await _viewModel.addToHistory(history, novelData: _novelDetails);
-      print('閲覧履歴に自動登録完了: $ncode (第${_currentChapter}章)');
+      print('閲覧履歴に自動登録完了: $ncode (第$_currentChapter章)');
     } catch (e) {
       print('閲覧履歴自動登録エラー: $e');
     }
@@ -551,7 +545,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
 
     final loadTime =
         DateTime.now().difference(_pageLoadStartTime ?? DateTime.now());
-    print("ページ読み込み完了: $url (" + loadTime.inMilliseconds.toString() + "ms)");
+    print("ページ読み込み完了: $url (${loadTime.inMilliseconds}ms)");
     _viewModel.updateLoadingState(false);
 
     if (!_isWebViewInitialized) {
@@ -586,9 +580,23 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
       // 小説URLの場合は閲覧履歴に自動登録・更新
       await _autoAddToHistory(url);
 
-      if (!_hasScrolledToTitle && _isJavaScriptReady) {
-        await _scrollToTitle();
-        _hasScrolledToTitle = true;
+      // JavaScript環境が準備完了してからスクロール操作を実行
+      if (!_hasScrolledToTitle) {
+        if (_isJavaScriptReady) {
+          await _scrollToTitle();
+          _hasScrolledToTitle = true;
+        } else {
+          // JavaScript環境が未準備の場合は少し待ってから再試行
+          Timer(const Duration(milliseconds: 1000), () async {
+            if (mounted && !_hasScrolledToTitle) {
+              await _testJavaScriptExecution();
+              if (_isJavaScriptReady) {
+                await _scrollToTitle();
+                _hasScrolledToTitle = true;
+              }
+            }
+          });
+        }
       }
     } catch (e) {
       print('ページ処理エラー: $e');
@@ -702,11 +710,11 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
       await _testJavaScriptExecution();
 
       if (_isJavaScriptReady) {
-        print('WebView初期化完全完了 (${_initializationAttempts}回目)');
+        print('WebView初期化完全完了 ($_initializationAttempts回目)');
         _initializationTimer?.cancel();
       }
     } catch (e) {
-      print('初期化チェック失敗 (${_initializationAttempts}回目): $e');
+      print('初期化チェック失敗 ($_initializationAttempts回目): $e');
       if (_initializationAttempts >= maxInitializationAttempts) {
         print('最大試行回数に達したため強制再初期化を実行');
         await _forceReinitialize();
@@ -986,10 +994,10 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(_isSerialNovel
-                  ? 'ブックマークに追加しました (第${_currentChapter}章)'
+                  ? 'ブックマークに追加しました (第$_currentChapter章)'
                   : 'ブックマークに追加しました'),
               backgroundColor: Colors.green,
-              duration: Duration(seconds: 2),
+              duration: const Duration(seconds: 2),
             ),
           );
         }
@@ -1334,7 +1342,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
+              const Text(
                 'その他のオプション',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
@@ -1629,6 +1637,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                       leading: const Icon(Icons.line_weight),
                       title: const Text('行間広く'),
                       subtitle: const Text('読みやすい行間に調整'),
+                      enabled: isWebViewReady,
                       onTap: () {
                         Navigator.pop(context);
                         if (isWebViewReady) {
@@ -1647,6 +1656,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                       leading: const Icon(Icons.line_weight),
                       title: const Text('行間狭く'),
                       subtitle: const Text('コンパクトな行間に調整'),
+                      enabled: isWebViewReady,
                       onTap: () {
                         Navigator.pop(context);
                         if (isWebViewReady) {
@@ -1665,6 +1675,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                       leading: const Icon(Icons.refresh),
                       title: const Text('設定リセット'),
                       subtitle: const Text('表示設定を初期状態に戻す'),
+                      enabled: isWebViewReady,
                       onTap: () {
                         Navigator.pop(context);
                         if (isWebViewReady) {

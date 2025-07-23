@@ -563,16 +563,16 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
 
     await _updateNavigationState();
 
-    if (kDebugMode && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_isJavaScriptReady
-              ? 'WebViewの読み込みが完了しました'
-              : 'WebViewの読み込み中です...'),
-          duration: const Duration(seconds: 1),
-        ),
-      );
-    }
+    //if (kDebugMode && mounted) {
+    //  ScaffoldMessenger.of(context).showSnackBar(
+    //    SnackBar(
+    //      content: Text(_isJavaScriptReady
+    //          ? 'WebViewの読み込みが完了しました'
+    //          : 'WebViewの読み込み中です...'),
+    //      duration: const Duration(seconds: 1),
+    //    ),
+    //  );
+    //}
 
     try {
       await _updateChapterFromUrl(url);
@@ -793,12 +793,12 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
       Navigator.of(context).pop();
 
       if (_isJavaScriptReady) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('WebViewの初期化が完了しました'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        //ScaffoldMessenger.of(context).showSnackBar(
+        //  const SnackBar(
+        //    content: Text('WebViewの初期化が完了しました'),
+        //    backgroundColor: Colors.green,
+        //  ),
+        //);
       } else {
         _showReinitializationDialog();
       }
@@ -876,6 +876,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
               : widget.title;
               
           return Scaffold(
+            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
             appBar: AppBar(
               toolbarHeight: 45,
               title: Text(

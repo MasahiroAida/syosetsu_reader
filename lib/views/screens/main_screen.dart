@@ -4,6 +4,7 @@ import 'ranking_screen.dart';
 import 'review_screen.dart';
 import 'search_screen.dart';
 import 'settings_screen.dart';
+import '../../widgets/banner_ad_widget.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -40,7 +41,9 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: PageView(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: SafeArea(
+        child: PageView(
         controller: _pageController,
         physics: _selectedIndex == 3 ? const NeverScrollableScrollPhysics() : null, // 検索画面ではスワイプ無効
         onPageChanged: (index) {
@@ -49,8 +52,14 @@ class _MainScreenState extends State<MainScreen> {
           });
         },
         children: _screens.map((screen) => _KeepAliveWrapper(child: screen)).toList(),
+        ),
       ),
-      bottomNavigationBar: BottomNavigationBar(
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 読書中画面でのみバナー広告を表示
+          if (_selectedIndex == 0) const BannerAdWidget(),
+          BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _selectedIndex,
         onTap: (index) {
@@ -109,6 +118,8 @@ class _MainScreenState extends State<MainScreen> {
             icon: Icon(Icons.settings),
             label: '設定',
           ),
+        ],
+      ),
         ],
       ),
     );

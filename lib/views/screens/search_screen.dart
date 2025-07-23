@@ -41,6 +41,7 @@ class _SearchScreenState extends State<SearchScreen> {
           return GestureDetector(
             onPanUpdate: (_) {}, // スワイプを無効化
             child: Scaffold(
+              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
               appBar: AppBar(
                 leading: widget.isR18
                     ? IconButton(

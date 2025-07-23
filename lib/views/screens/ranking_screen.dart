@@ -38,11 +38,12 @@ class _RankingScreenState extends State<RankingScreen>
       child: Consumer<RankingViewModel>(
         builder: (context, viewModel, child) {
           return Scaffold(
+            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
             appBar: AppBar(
               title: const Text('ランキング'),
               actions: [
                 Padding(
-                  padding: const EdgeInsets.only(right: 8.0),
+                  padding: const EdgeInsets.only(right: 6.0),
                   child: DropdownButton<int>(
                     value: viewModel.selectedGenre,
                     underline: const SizedBox(),

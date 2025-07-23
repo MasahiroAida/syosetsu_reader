@@ -49,6 +49,7 @@ class ReadingListScreenState extends State<ReadingListScreen>
     super.build(context); // AutomaticKeepAliveClientMixinのために必要
     
     return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('読書中'),
         actions: [

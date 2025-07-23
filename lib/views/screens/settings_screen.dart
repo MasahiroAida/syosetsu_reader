@@ -35,6 +35,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Consumer<SettingsViewModel>(
         builder: (context, viewModel, child) {
           return Scaffold(
+            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
             appBar: AppBar(
               title: const Text('設定'),
             ),

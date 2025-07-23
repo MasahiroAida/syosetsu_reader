@@ -28,6 +28,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
       child: Consumer<ReviewViewModel>(
         builder: (context, viewModel, child) {
           return Scaffold(
+            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
             appBar: AppBar(
               title: const Text('イチオシレビュー'),
               actions: [

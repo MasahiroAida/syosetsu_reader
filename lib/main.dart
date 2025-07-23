@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'models/novel.dart';
 import 'models/bookmark.dart';
 import 'models/reading_history.dart';
@@ -7,6 +8,10 @@ import 'app.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Google Mobile Ads SDKを初期化
+  await MobileAds.instance.initialize();
+  
   await Hive.initFlutter();
   Hive.registerAdapter(NovelAdapter());
   Hive.registerAdapter(BookmarkAdapter());

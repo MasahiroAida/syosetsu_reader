@@ -56,7 +56,7 @@ class ThemeHelper {
   }
 
   /// 統一されたAppBarスタイル取得
-  static AppBarTheme getAppBarTheme(BuildContext context) {
+  static AppBarThemeData getAppBarTheme(BuildContext context) {
     final theme = Theme.of(context);
     return theme.appBarTheme;
   }

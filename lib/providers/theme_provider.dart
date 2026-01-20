@@ -124,7 +124,7 @@ class ThemeProvider extends ChangeNotifier {
       ),
       
       // Card テーマ
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: surfaceColor,
         elevation: 2,
         shape: RoundedRectangleBorder(
@@ -192,7 +192,7 @@ class ThemeProvider extends ChangeNotifier {
       ),
       
       // Card テーマ
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: surfaceColor,
         elevation: 2,
         shape: RoundedRectangleBorder(

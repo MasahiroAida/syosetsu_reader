@@ -685,4 +685,15 @@ class WebViewViewModel extends ChangeNotifier {
       return 0;
     }
   }
+
+  /// ブックマーク存在確認（外部からアクセス用）
+  Future<Bookmark?> getBookmarkByNovelId(String novelId) async {
+    return await _dbHelper.getBookmarkByNovelId(novelId);
+  }
+
+  /// ブックマーク直接挿入（外部からアクセス用）
+  Future<void> insertBookmark(Bookmark bookmark) async {
+    await _dbHelper.insertBookmark(bookmark);
+    await checkBookmarkStatus(bookmark.novelId);
+  }
 }

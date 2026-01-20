@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:flutter/foundation.dart';
 import '../../viewmodels/webview_viewmodel.dart';
 import '../../models/reading_history.dart';
+import '../../models/bookmark.dart';
 import '../../providers/theme_provider.dart';
 import '../../utils/theme_helper.dart';
 
@@ -1326,11 +1328,339 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     }
   }
 
+  /// ブックマークページからデータを取得するJavaScript
+  Future<List<Map<String, dynamic>>> _scrapeBookmarkData() async {
+    const scrapeScript = r'''
+      (function() {
+        try {
+          console.log('ブックマークスクレイピング開始...');
+          
+          // 現在のURLがブックマークページかチェック
+          if (!window.location.href.includes('syosetu.com/favnovelmain/list/')) {
+            console.log('ブックマークページではありません:', window.location.href);
+            return JSON.stringify({ error: 'ブックマークページではありません' });
+          }
+          
+          const items = document.querySelectorAll('.c-up-chk-item__content');
+          console.log('見つかった要素数:', items.length);
+          
+          if (items.length === 0) {
+            return JSON.stringify({ error: '要素が見つかりませんでした' });
+          }
+          
+          var bookmarks = [];
+          
+          items.forEach(function(item, index) {
+            try {
+              // タイトルとリンクを取得
+              var titleElement = item.querySelector('a');
+              if (!titleElement) return;
+              
+              var title = (titleElement.textContent || '').trim() || '';
+              var href = titleElement.href || '';
+              
+              // 小説IDを抽出
+              var ncodeMatch = href.match(/\/([a-z0-9]+)\/?$/i);
+              var novelId = ncodeMatch ? ncodeMatch[1].toLowerCase() : '';
+              
+              if (!novelId) return;
+              
+              // 作者名を取得
+              var authorElement = item.querySelector('.c-up-chk-item__author, .author, [class*="author"]');
+              var author = authorElement ? 
+                (authorElement.textContent || '').trim().replace(/^作者[：:]?\s*/, '') || 'Unknown' 
+                : 'Unknown';
+              
+              // 読書状況を取得
+              var progressElement = item.querySelector('.c-up-chk-item__progress, .progress, [class*="progress"]');
+              var currentChapter = 0;
+              var isSerialNovel = false;
+              
+              if (progressElement) {
+                var progressText = (progressElement.textContent || '').trim();
+                console.log('進捗テキスト:', progressText);
+                
+                // "○話まで読了" or "第○話まで読了" のパターンをチェック
+                var chapterMatch = progressText.match(/(第?)(\d+)[話章]まで読了/);
+                if (chapterMatch) {
+                  currentChapter = parseInt(chapterMatch[2], 10) || 0;
+                  isSerialNovel = true;
+                } else if (progressText.includes('読了') || progressText.includes('完読')) {
+                  // 短編の場合
+                  isSerialNovel = false;
+                  currentChapter = 0;
+                }
+              }
+              
+              // URLから連載/短編を判定（バックアップ判定）
+              if (!isSerialNovel) {
+                isSerialNovel = /\/\d+\/$/.test(href);
+              }
+              
+              var bookmark = {
+                novelId: novelId,
+                novelTitle: title,
+                author: author,
+                currentChapter: currentChapter,
+                isSerialNovel: isSerialNovel,
+                url: href,
+                addedAt: new Date().toISOString(),
+                lastViewed: new Date().toISOString()
+              };
+              
+              console.log('ブックマークデータ:', bookmark);
+              bookmarks.push(bookmark);
+              
+            } catch (itemError) {
+              console.error('項目処理エラー:', itemError, item);
+            }
+          });
+          
+          console.log('スクレイピング完了. 取得数:', bookmarks.length);
+          return JSON.stringify({ success: true, bookmarks: bookmarks });
+          
+        } catch (e) {
+          console.error('スクレイピングエラー:', e);
+          return JSON.stringify({ error: e.toString() });
+        }
+      })();
+    ''';
+
+    try {
+      final result = await _controller.runJavaScriptReturningResult(scrapeScript);
+      final resultStr = result.toString();
+      
+      if (resultStr.isEmpty) {
+        throw Exception('スクレイピング結果が空です');
+      }
+      
+      // JSON文字列をパース
+      final Map<String, dynamic> jsonData = Map<String, dynamic>.from(
+        await compute((String jsonStr) {
+          // JSON文字列の前後のダブルクォーテーションを除去
+          final cleanJson = jsonStr.startsWith('"') && jsonStr.endsWith('"')
+              ? jsonStr.substring(1, jsonStr.length - 1).replaceAll('\\"', '"')
+              : jsonStr;
+          
+          final data = json.decode(cleanJson);
+          return data is Map ? data : <String, dynamic>{};
+        }, resultStr)
+      );
+      
+      if (jsonData.containsKey('error')) {
+        throw Exception(jsonData['error']);
+      }
+      
+      final bookmarksList = jsonData['bookmarks'] as List? ?? [];
+      return bookmarksList.map((e) => Map<String, dynamic>.from(e)).toList();
+      
+    } catch (e) {
+      debugPrint('ブックマークスクレイピングエラー: $e');
+      rethrow;
+    }
+  }
+
+  /// スクレイピングしたデータをBookmarkオブジェクトに変換して保存
+  Future<int> _importBookmarksFromScrapedData() async {
+    try {
+      // 現在のURLがブックマークページかチェック
+      if (_currentUrl == null || !_currentUrl!.contains('syosetu.com/favnovelmain/list/')) {
+        throw Exception('ブックマークページではありません。\nhttps://syosetu.com/favnovelmain/list/ にアクセスしてからインポートしてください。');
+      }
+
+      // スクレイピング実行
+      final scrapedData = await _scrapeBookmarkData();
+      
+      if (scrapedData.isEmpty) {
+        throw Exception('ブックマークデータが見つかりませんでした');
+      }
+
+      int importedCount = 0;
+      int skippedCount = 0;
+      final errors = <String>[];
+
+      // 各スクレイピングデータをBookmarkオブジェクトに変換して保存
+      for (final data in scrapedData) {
+        try {
+          final novelId = data['novelId'] as String;
+          final novelTitle = data['novelTitle'] as String;
+          final author = data['author'] as String;
+          final currentChapter = data['currentChapter'] as int? ?? 0;
+          final isSerialNovel = data['isSerialNovel'] as bool? ?? false;
+
+          // 既に存在するかチェック
+          final existingBookmark = await _viewModel.getBookmarkByNovelId(novelId);
+          if (existingBookmark != null) {
+            skippedCount++;
+            continue; // 既に存在する場合はスキップ
+          }
+
+          // Bookmarkオブジェクトを作成
+          final bookmark = Bookmark(
+            id: novelId,
+            novelId: novelId,
+            novelTitle: novelTitle,
+            author: author,
+            currentChapter: currentChapter,
+            addedAt: DateTime.now(),
+            lastViewed: DateTime.now(),
+            scrollPosition: 0.0, // 初期値
+            isSerialNovel: isSerialNovel,
+          );
+
+          // データベースに保存
+          await _viewModel.insertBookmark(bookmark);
+          importedCount++;
+
+          print('ブックマークインポート完了: $novelTitle (ID: $novelId)');
+
+        } catch (itemError) {
+          final title = data['novelTitle'] ?? 'Unknown';
+          errors.add('$title: ${itemError.toString()}');
+          print('個別アイテムのインポートエラー: $itemError');
+        }
+      }
+
+      // 結果をログ出力
+      print('ブックマークインポート結果:');
+      print('  インポート成功: $importedCount件');
+      print('  スキップ: $skippedCount件');
+      print('  エラー: ${errors.length}件');
+
+      if (errors.isNotEmpty) {
+        print('  エラー詳細: ${errors.join(', ')}');
+      }
+
+      return importedCount;
+
+    } catch (e) {
+      debugPrint('ブックマークインポートエラー: $e');
+      rethrow;
+    }
+  }
+
+  /// ブックマークインポートのハンドラー
+  Future<void> _handleBookmarkImport() async {
+    try {
+      // 確認ダイアログを表示
+      final shouldImport = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('ブックマークインポート'),
+          content: const Text(
+            'このページからブックマーク情報を読み取り、アプリ内のブックマークに追加します。\n\n'
+            '既に登録済みのブックマークはスキップされます。\n\n'
+            '実行しますか？'
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('キャンセル'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('実行'),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldImport != true) return;
+
+      // 読み込み中ダイアログを表示
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          content: Row(
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(
+                  'ブックマークを読み込み中...\n\n'
+                  'ページからデータを取得しています。',
+                  style: TextStyle(fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      // インポート実行
+      final importedCount = await _importBookmarksFromScrapedData();
+
+      // ダイアログを閉じる
+      Navigator.pop(context);
+
+      // 結果ダイアログを表示
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('インポート完了'),
+          content: Text(
+            importedCount > 0
+                ? '$importedCount件のブックマークを追加しました。'
+                : 'インポートできるブックマークが見つかりませんでした。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+
+      if (importedCount > 0) {
+        // 成功時のSnackBar
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$importedCount件のブックマークを追加しました'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+
+    } catch (e) {
+      // エラー時の処理
+      Navigator.pop(context); // ローディングダイアログを閉じる
+
+      print('ブックマークインポートエラー: $e');
+
+      // エラーダイアログを表示
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('エラー'),
+          content: Text(
+            'ブックマークのインポートに失敗しました。\n\n'
+            'エラー詳細: $e'
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+
+      // エラー時のSnackBar
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('インポートに失敗しました: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
+  }
+
   void _showMoreOptions(WebViewViewModel viewModel) {
     // API情報があればそれを使用、なければフォールバック値を使用
-    final novelTitle = _novelDetails != null 
-        ? _viewModel.getNovelTitle(_novelDetails!) 
-        : widget.title;
     final totalChapters = _novelDetails != null 
         ? _viewModel.getTotalChapters(_novelDetails!) 
         : null;
@@ -1689,6 +2019,21 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                             const SnackBar(content: Text('WebViewの読み込みが完了していません')),
                           );
                         }
+                      },
+                    ),
+                    const Divider(),
+                    ListTile(
+                      leading: const Icon(Icons.bookmark_add),
+                      title: const Text('ブックマークインポート'),
+                      subtitle: Text(
+                        _currentUrl != null && _currentUrl!.contains('syosetu.com/favnovelmain/list/')
+                            ? 'このページからブックマークをインポート'
+                            : 'ブックマークページでのみ利用可能'
+                      ),
+                      enabled: isWebViewReady && _currentUrl != null && _currentUrl!.contains('syosetu.com/favnovelmain/list/'),
+                      onTap: () {
+                        Navigator.pop(context);
+                        _handleBookmarkImport();
                       },
                     ),
                   ],

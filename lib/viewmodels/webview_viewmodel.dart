@@ -5,13 +5,38 @@ import 'dart:convert';
 import '../models/bookmark.dart';
 import '../models/reading_history.dart';
 import '../services/database_helper.dart';
+import '../utils/novel_url.dart';
 
 class WebViewViewModel extends ChangeNotifier {
-  final DatabaseHelper _dbHelper = DatabaseHelper();
+  WebViewViewModel({http.Client? client, DatabaseHelper? database})
+      : _client = client ?? http.Client(),
+        _ownsClient = client == null,
+        _dbHelper = database ?? DatabaseHelper();
+
+  final DatabaseHelper _dbHelper;
+  final http.Client _client;
+  final bool _ownsClient;
+  bool _disposed = false;
+  int _detailsRequest = 0;
+  int _bookmarkRequest = 0;
+  final Map<String, Future<Map<String, dynamic>?>> _pendingDetails = {};
+
+  void _notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _detailsRequest++;
+    _bookmarkRequest++;
+    if (_ownsClient) _client.close();
+    super.dispose();
+  }
 
   /// APIから取得した小説データをキャッシュする
   final Map<String, Map<String, dynamic>> _novelDetailsCache = {};
-  
+
   bool _isLoading = true;
   bool _canGoBack = false;
   bool _canGoForward = false;
@@ -29,99 +54,85 @@ class WebViewViewModel extends ChangeNotifier {
   bool get isLoadingNovelDetails => _isLoadingNovelDetails;
 
   void updateLoadingState(bool loading) {
+    if (_disposed || _isLoading == loading) return;
     _isLoading = loading;
-    notifyListeners();
+    _notifyListeners();
   }
 
   void updateNavigationState(bool canGoBack, bool canGoForward) {
+    if (_disposed ||
+        (_canGoBack == canGoBack && _canGoForward == canGoForward)) {
+      return;
+    }
     _canGoBack = canGoBack;
     _canGoForward = canGoForward;
-    notifyListeners();
+    _notifyListeners();
   }
 
   /// URLからncodeを抽出
-  String? extractNcodeFromUrl(String url) {
-    try {
-      // なろうのURL形式に対応
-      // https://ncode.syosetu.com/n9893km/ または
-      // https://ncode.syosetu.com/n9893km/1/ など
-      final regex =
-          RegExp(r'https://(?:ncode|novel18)\.syosetu\.com/([a-zA-Z0-9]+)/?.*');
-      final match = regex.firstMatch(url);
-      
-      if (match != null) {
-        return match.group(1)?.toLowerCase(); // ncodeを小文字で返す
-      }
-      
-      return null;
-    } catch (e) {
-      print('ncode抽出エラー: $e');
-      return null;
-    }
-  }
+  String? extractNcodeFromUrl(String url) => NovelUrl.parse(url)?.ncode;
 
-  /// APIから小説詳細情報を取得
+  /// Keep concurrent page requests separate; only the latest may update the UI.
   Future<Map<String, dynamic>?> fetchNovelDetails(String ncode,
       {bool r18 = false}) async {
-    if (ncode.isEmpty) return null;
+    if (_disposed || ncode.isEmpty) return null;
+    final request = ++_detailsRequest;
+    final normalizedNcode = ncode.toLowerCase();
+    final cacheKey = '${r18 ? 'r18' : 'general'}:$normalizedNcode';
+    final cached = _novelDetailsCache[cacheKey];
+    _novelDetails = cached;
+    _isLoadingNovelDetails = cached == null;
+    _notifyListeners();
+    if (cached != null) return cached;
 
-    // キャッシュがあればそれを返す
-    if (_novelDetailsCache.containsKey(ncode)) {
-      _novelDetails = _novelDetailsCache[ncode];
-      return _novelDetails;
-    }
-
+    final pending = _pendingDetails.putIfAbsent(
+        cacheKey, () => _requestNovelDetails(normalizedNcode, r18: r18));
     try {
-      _isLoadingNovelDetails = true;
-      notifyListeners();
-
-      final baseUrl = r18
-          ? 'https://api.syosetu.com/novel18api/api'
-          : 'https://api.syosetu.com/novelapi/api';
-      final apiUrl = '$baseUrl?out=json&ncode=$ncode';
-      print('小説詳細API呼び出し: $apiUrl');
-
-      final response = await http.get(Uri.parse(apiUrl));
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-
-        if (data is List && data.length > 1) {
-          // 最初の要素はallcountなので、2番目の要素が小説データ
-          final novelData = data[1] as Map<String, dynamic>;
-
-          _novelDetails = novelData;
-          _novelDetailsCache[ncode] = novelData; // キャッシュに保存
-          print('小説詳細取得成功: ${novelData['title']}');
-
-          return novelData;
-        } else {
-          print('小説データが見つかりません: $ncode');
-          return null;
-        }
-      } else {
-        print('API呼び出し失敗: ${response.statusCode}');
-        return null;
-      }
-    } catch (e) {
-      print('小説詳細取得エラー: $e');
-      return null;
+      final details = await pending;
+      if (details != null) _novelDetailsCache[cacheKey] = details;
+      if (!_disposed && request == _detailsRequest) _novelDetails = details;
+      return details;
     } finally {
-      _isLoadingNovelDetails = false;
-      notifyListeners();
+      if (identical(_pendingDetails[cacheKey], pending)) {
+        _pendingDetails.remove(cacheKey);
+      }
+      if (!_disposed && request == _detailsRequest) {
+        _isLoadingNovelDetails = false;
+        _notifyListeners();
+      }
     }
   }
 
-  /// URLから小説詳細情報を取得
-  Future<Map<String, dynamic>?> fetchNovelDetailsFromUrl(String url) async {
-    final ncode = extractNcodeFromUrl(url);
-    final isR18 = url.contains('novel18.syosetu.com');
-    if (ncode == null) {
-      print('URLからncodeを抽出できませんでした: $url');
+  Future<Map<String, dynamic>?> _requestNovelDetails(String ncode,
+      {required bool r18}) async {
+    try {
+      final uri = Uri.https(
+          'api.syosetu.com',
+          r18 ? '/novel18api/api/' : '/novelapi/api/',
+          {'out': 'json', 'ncode': ncode});
+      final response = await _client.get(uri, headers: {
+        'User-Agent': 'SyosetsuReader/1.0',
+      }).timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200) return null;
+      final data = json.decode(utf8.decode(response.bodyBytes));
+      if (data is! List || data.length < 2 || data[1] is! Map) return null;
+      return Map<String, dynamic>.from(data[1] as Map);
+    } catch (e) {
+      debugPrint('小説詳細取得エラー: $e');
       return null;
     }
-    
-    return await fetchNovelDetails(ncode, r18: isR18);
+  }
+
+  Future<Map<String, dynamic>?> fetchNovelDetailsFromUrl(String url) async {
+    final page = NovelUrl.parse(url);
+    if (page == null) {
+      _detailsRequest++;
+      _novelDetails = null;
+      _isLoadingNovelDetails = false;
+      _notifyListeners();
+      return null;
+    }
+    return fetchNovelDetails(page.ncode, r18: page.isR18);
   }
 
   /// 小説が連載かどうかを判定
@@ -130,11 +141,12 @@ class WebViewViewModel extends ChangeNotifier {
 
     // novel_type: 2=短編, 1=連載
     final novelType = novelData['novel_type'];
-    return novelType == 1;
+    return novelType.toString() == '1';
   }
 
   /// 小説のタイトルを取得
-  String getNovelTitle(Map<String, dynamic>? novelData, {String? fallbackTitle}) {
+  String getNovelTitle(Map<String, dynamic>? novelData,
+      {String? fallbackTitle}) {
     if (novelData != null && novelData['title'] != null) {
       return novelData['title'].toString();
     }
@@ -157,10 +169,17 @@ class WebViewViewModel extends ChangeNotifier {
     return 1;
   }
 
+  DateTime? getLastUpdate(Map<String, dynamic>? novelData) {
+    if (novelData == null) return null;
+    final raw = novelData['general_lastup']?.toString();
+    if (raw == null || raw.isEmpty) return null;
+    return DateTime.tryParse(raw);
+  }
+
   /// 小説のジャンルを取得
   String getNovelGenre(Map<String, dynamic>? novelData) {
     if (novelData == null) return 'その他';
-    
+
     final genreMap = {
       101: '異世界〔恋愛〕',
       102: '現実世界〔恋愛〕',
@@ -183,21 +202,26 @@ class WebViewViewModel extends ChangeNotifier {
       9904: 'リプレイ〔その他〕',
       9999: 'その他〔その他〕',
     };
-    
+
     final genre = novelData['genre'];
     if (genre != null) {
       return genreMap[int.tryParse(genre.toString())] ?? 'その他';
     }
-    
+
     return 'その他';
   }
 
   Future<void> checkBookmarkStatus(String novelId) async {
+    final request = ++_bookmarkRequest;
+    _isBookmarked = false;
+    _notifyListeners();
     try {
-      _isBookmarked = await _dbHelper.isBookmarked(novelId);
-      notifyListeners();
+      final bookmarked = await _dbHelper.isBookmarked(novelId);
+      if (_disposed || request != _bookmarkRequest) return;
+      _isBookmarked = bookmarked;
+      _notifyListeners();
     } catch (e) {
-      print('ブックマーク状態確認エラー: $e');
+      debugPrint('ブックマーク状態確認エラー: $e');
     }
   }
 
@@ -206,26 +230,29 @@ class WebViewViewModel extends ChangeNotifier {
     try {
       return await _dbHelper.getReadingHistoryByNovelId(novelId);
     } catch (e) {
-      print('履歴取得エラー: $e');
+      debugPrint('履歴取得エラー: $e');
       return null;
     }
   }
 
   /// 履歴を追加または更新（API情報を使用）+ ブックマークの最終閲覧時刻も更新
-  Future<void> addToHistory(ReadingHistory history, {Map<String, dynamic>? novelData}) async {
+  Future<void> addToHistory(ReadingHistory history,
+      {Map<String, dynamic>? novelData}) async {
     try {
       // 既存の履歴があるかチェック
-      final existingHistory = await _dbHelper.getReadingHistoryByNovelId(history.novelId);
-      
+      final existingHistory =
+          await _dbHelper.getReadingHistoryByNovelId(history.novelId);
+
       final now = DateTime.now();
-      
+
       // API情報がある場合は、より正確な情報で履歴を更新
       ReadingHistory updatedHistory = history;
       if (novelData != null) {
         updatedHistory = ReadingHistory(
           id: history.id,
           novelId: history.novelId,
-          novelTitle: getNovelTitle(novelData, fallbackTitle: history.novelTitle),
+          novelTitle:
+              getNovelTitle(novelData, fallbackTitle: history.novelTitle),
           author: getNovelAuthor(novelData),
           currentChapter: history.currentChapter,
           totalChapters: getTotalChapters(novelData),
@@ -233,6 +260,7 @@ class WebViewViewModel extends ChangeNotifier {
           url: history.url,
           scrollPosition: history.scrollPosition,
           isSerialNovel: isSerialNovel(novelData),
+          lastUpdate: getLastUpdate(novelData),
         );
       } else {
         // API情報がない場合も最終閲覧時刻は更新
@@ -247,68 +275,63 @@ class WebViewViewModel extends ChangeNotifier {
           url: history.url,
           scrollPosition: history.scrollPosition,
           isSerialNovel: history.isSerialNovel,
+          lastUpdate: history.lastUpdate,
         );
       }
-      
+
       if (existingHistory != null) {
         // 既存の履歴がある場合は全体を更新
         await _dbHelper.updateReadingHistoryFull(updatedHistory);
-        print('閲覧履歴を更新: ${updatedHistory.novelId} (第${updatedHistory.currentChapter}章) at ${updatedHistory.lastViewed}');
+        debugPrint(
+            '閲覧履歴を更新: ${updatedHistory.novelId} (第${updatedHistory.currentChapter}章) at ${updatedHistory.lastViewed}');
       } else {
         // 新規の場合は挿入
         await _dbHelper.insertReadingHistory(updatedHistory);
-        print('閲覧履歴を新規追加: ${updatedHistory.novelId} (第${updatedHistory.currentChapter}章) at ${updatedHistory.lastViewed}');
+        debugPrint(
+            '閲覧履歴を新規追加: ${updatedHistory.novelId} (第${updatedHistory.currentChapter}章) at ${updatedHistory.lastViewed}');
       }
 
       // ★ ブックマークの最終閲覧時刻も同時に更新
       await updateBookmarkLastViewed(history.novelId, now, novelData);
-      
     } catch (e) {
-      print('履歴追加エラー: $e');
+      debugPrint('履歴追加エラー: $e');
     }
   }
 
   /// ブックマークの最終閲覧時刻を更新（新規メソッド）
-  Future<void> updateBookmarkLastViewed(String novelId, DateTime lastViewed, Map<String, dynamic>? novelData) async {
+  Future<void> updateBookmarkLastViewed(String novelId, DateTime lastViewed,
+      Map<String, dynamic>? novelData) async {
     try {
       final bookmark = await _dbHelper.getBookmarkByNovelId(novelId);
       if (bookmark != null) {
         // ブックマークが存在する場合は最終閲覧時刻を更新
         bookmark.lastViewed = lastViewed;
-        
+
         // API情報がある場合は、より正確な情報で更新
         if (novelData != null) {
-          bookmark.novelTitle = getNovelTitle(novelData, fallbackTitle: bookmark.novelTitle);
+          bookmark.novelTitle =
+              getNovelTitle(novelData, fallbackTitle: bookmark.novelTitle);
           bookmark.author = getNovelAuthor(novelData);
           bookmark.isSerialNovel = isSerialNovel(novelData);
+          bookmark.lastUpdate = getLastUpdate(novelData);
         }
-        
+
         await bookmark.save();
-        print('ブックマークの最終閲覧時刻を更新: $novelId at $lastViewed');
+        debugPrint('ブックマークの最終閲覧時刻を更新: $novelId at $lastViewed');
       }
     } catch (e) {
-      print('ブックマーク最終閲覧時刻更新エラー: $e');
+      debugPrint('ブックマーク最終閲覧時刻更新エラー: $e');
     }
   }
 
   /// URLが小説コンテンツかどうかを判定
-  bool isNovelContentUrl(String url) {
-    try {
-      // なろうの小説ページかどうかチェック
-      final novelRegex =
-          RegExp(r'https://(?:ncode|novel18)\.syosetu\.com/([a-zA-Z0-9]+)(/[0-9]+)?/?.*');
-      return novelRegex.hasMatch(url);
-    } catch (e) {
-      print('小説URL判定エラー: $e');
-      return false;
-    }
-  }
-  
+  bool isNovelContentUrl(String url) => NovelUrl.parse(url) != null;
+
   /// URLから基本的な小説情報を推測
   Map<String, dynamic> inferNovelInfoFromUrl(String url, String fallbackTitle) {
     final ncode = extractNcodeFromUrl(url);
     final isSerial = isSerialNovelFromUrl(url);
-    
+
     return {
       'ncode': ncode ?? 'unknown',
       'title': fallbackTitle,
@@ -317,59 +340,48 @@ class WebViewViewModel extends ChangeNotifier {
       'chapter': isSerial ? _extractChapterFromUrl(url) : 0,
     };
   }
-  
+
   /// URLから章番号を抽出（プライベートメソッドの代替）
-  int _extractChapterFromUrl(String url) {
-    try {
-      final regex =
-          RegExp(r'https://(?:ncode|novel18)\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
-      final match = regex.firstMatch(url);
-      
-      if (match != null) {
-        return int.tryParse(match.group(2)!) ?? 0;
-      }
-      return 0;
-    } catch (e) {
-      print('章番号抽出エラー: $e');
-      return 0;
-    }
-  }
+  int _extractChapterFromUrl(String url) => NovelUrl.parse(url)?.chapter ?? 0;
 
   /// 読書履歴のチャプターを更新（最終閲覧時刻も更新）
   Future<void> updateReadingChapter(String novelId, int currentChapter) async {
     try {
       final now = DateTime.now();
       await _dbHelper.updateReadingHistory(novelId, currentChapter);
-      
+
       // ★ ブックマークの最終閲覧時刻も同時に更新
       await updateBookmarkLastViewed(novelId, now, null);
-      
+
       if (currentChapter == 0) {
-        print('読書履歴を目次/短編として更新: $novelId');
+        debugPrint('読書履歴を目次/短編として更新: $novelId');
       } else {
-        print('読書履歴のチャプターを更新: $novelId -> 第$currentChapter章');
+        debugPrint('読書履歴のチャプターを更新: $novelId -> 第$currentChapter章');
       }
     } catch (e) {
-      print('読書履歴チャプター更新エラー: $e');
+      debugPrint('読書履歴チャプター更新エラー: $e');
     }
   }
 
   /// 読書履歴の位置（チャプター + スクロール）を更新（最終閲覧時刻も更新）
-  Future<void> updateReadingPosition(String novelId, int currentChapter, double scrollPosition) async {
+  Future<void> updateReadingPosition(
+      String novelId, int currentChapter, double scrollPosition) async {
     try {
       final now = DateTime.now();
-      await _dbHelper.updateReadingPosition(novelId, currentChapter, scrollPosition);
-      
+      await _dbHelper.updateReadingPosition(
+          novelId, currentChapter, scrollPosition);
+
       // ★ ブックマークの最終閲覧時刻も同時に更新
       await updateBookmarkLastViewed(novelId, now, null);
-      
+
       if (currentChapter == 0) {
-        print('目次/短編の読書位置を更新: $novelId -> scroll: $scrollPosition');
+        debugPrint('目次/短編の読書位置を更新: $novelId -> scroll: $scrollPosition');
       } else {
-        print('連載の読書位置を更新: $novelId -> 第$currentChapter章, scroll: $scrollPosition');
+        debugPrint(
+            '連載の読書位置を更新: $novelId -> 第$currentChapter章, scroll: $scrollPosition');
       }
     } catch (e) {
-      print('読書位置更新エラー: $e');
+      debugPrint('読書位置更新エラー: $e');
     }
   }
 
@@ -378,82 +390,99 @@ class WebViewViewModel extends ChangeNotifier {
     try {
       final bookmark = await _dbHelper.getBookmarkByNovelId(novelId);
       if (bookmark != null) {
-        await _dbHelper.updateBookmarkPosition(novelId, currentChapter, bookmark.scrollPosition ?? 0.0);
-        
+        await _dbHelper.updateBookmarkPosition(
+            novelId, currentChapter, bookmark.scrollPosition ?? 0.0);
+
         if (currentChapter == 0) {
-          print('ブックマークを目次/短編として更新: $novelId');
+          debugPrint('ブックマークを目次/短編として更新: $novelId');
         } else {
-          print('ブックマークのチャプターを更新: $novelId -> 第$currentChapter章');
+          debugPrint('ブックマークのチャプターを更新: $novelId -> 第$currentChapter章');
         }
       }
     } catch (e) {
-      print('ブックマークチャプター更新エラー: $e');
+      debugPrint('ブックマークチャプター更新エラー: $e');
     }
   }
 
   /// ブックマークの位置（チャプター + スクロール）を更新
-  Future<void> updateBookmarkPosition(String novelId, int currentChapter, double scrollPosition) async {
+  Future<void> updateBookmarkPosition(
+      String novelId, int currentChapter, double scrollPosition) async {
     try {
-      await _dbHelper.updateBookmarkPosition(novelId, currentChapter, scrollPosition);
-      
+      await _dbHelper.updateBookmarkPosition(
+          novelId, currentChapter, scrollPosition);
+
       if (currentChapter == 0) {
-        print('目次/短編ブックマーク位置を更新: $novelId -> scroll: $scrollPosition');
+        debugPrint('目次/短編ブックマーク位置を更新: $novelId -> scroll: $scrollPosition');
       } else {
-        print('連載ブックマーク位置を更新: $novelId -> 第$currentChapter章, scroll: $scrollPosition');
+        debugPrint(
+            '連載ブックマーク位置を更新: $novelId -> 第$currentChapter章, scroll: $scrollPosition');
       }
     } catch (e) {
-      print('ブックマーク位置更新エラー: $e');
+      debugPrint('ブックマーク位置更新エラー: $e');
     }
   }
 
   /// ブックマークを追加（API情報を使用）
-  Future<bool> addBookmark(String novelId, String title, {
+  Future<bool> addBookmark(
+    String novelId,
+    String title, {
     int currentChapter = 1,
     double scrollPosition = 0.0,
     bool isSerialNovel = false,
     Map<String, dynamic>? novelData,
   }) async {
+    final request = ++_bookmarkRequest;
     try {
       final now = DateTime.now();
       final bookmark = Bookmark(
         id: novelId,
         novelId: novelId,
-        novelTitle: novelData != null ? getNovelTitle(novelData, fallbackTitle: title) : title,
+        novelTitle: novelData != null
+            ? getNovelTitle(novelData, fallbackTitle: title)
+            : title,
         author: novelData != null ? getNovelAuthor(novelData) : 'Unknown',
         currentChapter: currentChapter,
         addedAt: now,
         lastViewed: now,
         scrollPosition: scrollPosition,
         isSerialNovel: isSerialNovel,
+        lastUpdate: getLastUpdate(novelData),
       );
-      
+
       await _dbHelper.insertBookmark(bookmark);
-      _isBookmarked = true;
-      notifyListeners();
-      print('ブックマークを追加: $novelId');
+      if (!_disposed && request == _bookmarkRequest) {
+        _isBookmarked = true;
+        _notifyListeners();
+      }
+      debugPrint('ブックマークを追加: $novelId');
       return true;
     } catch (e) {
-      print('ブックマーク追加エラー: $e');
+      debugPrint('ブックマーク追加エラー: $e');
       return false;
     }
   }
 
   /// ブックマークを削除
   Future<bool> removeBookmark(String novelId) async {
+    final request = ++_bookmarkRequest;
     try {
       await _dbHelper.deleteBookmark(novelId);
-      _isBookmarked = false;
-      notifyListeners();
-      print('ブックマークを削除: $novelId');
+      if (!_disposed && request == _bookmarkRequest) {
+        _isBookmarked = false;
+        _notifyListeners();
+      }
+      debugPrint('ブックマークを削除: $novelId');
       return true;
     } catch (e) {
-      print('ブックマーク削除エラー: $e');
+      debugPrint('ブックマーク削除エラー: $e');
       return false;
     }
   }
 
   /// ブックマークを切り替え（章情報とスクロール位置、API情報も保存）
-  Future<bool> toggleBookmark(String novelId, String title, {
+  Future<bool> toggleBookmark(
+    String novelId,
+    String title, {
     int currentChapter = 0,
     double scrollPosition = 0.0,
     bool isSerialNovel = false,
@@ -463,31 +492,28 @@ class WebViewViewModel extends ChangeNotifier {
       if (_isBookmarked) {
         return await removeBookmark(novelId) ? false : true;
       } else {
-        return await addBookmark(novelId, title, 
-          currentChapter: currentChapter, 
-          scrollPosition: scrollPosition,
-          isSerialNovel: isSerialNovel,
-          novelData: novelData);
+        return await addBookmark(novelId, title,
+            currentChapter: currentChapter,
+            scrollPosition: scrollPosition,
+            isSerialNovel: isSerialNovel,
+            novelData: novelData);
       }
     } catch (e) {
-      print('ブックマーク切り替えエラー: $e');
+      debugPrint('ブックマーク切り替えエラー: $e');
       return _isBookmarked;
     }
   }
 
   /// URLから小説種別を判定するヘルパーメソッド
-  bool isSerialNovelFromUrl(String url) {
-    final serialRegex =
-        RegExp(r'https://(?:ncode|novel18)\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
-    return serialRegex.hasMatch(url);
-  }
+  bool isSerialNovelFromUrl(String url) =>
+      (NovelUrl.parse(url)?.chapter ?? 0) > 0;
 
   /// すべての読書履歴を取得
   Future<List<ReadingHistory>> getAllHistory() async {
     try {
       return await _dbHelper.getAllReadingHistory();
     } catch (e) {
-      print('履歴一覧取得エラー: $e');
+      debugPrint('履歴一覧取得エラー: $e');
       return [];
     }
   }
@@ -505,7 +531,7 @@ class WebViewViewModel extends ChangeNotifier {
     try {
       await _dbHelper.deleteReadingHistory(novelId);
     } catch (e) {
-      print('履歴削除エラー: $e');
+      debugPrint('履歴削除エラー: $e');
     }
   }
 
@@ -640,24 +666,25 @@ class WebViewViewModel extends ChangeNotifier {
       ''');
       return title.toString();
     } catch (e) {
-      print('タイトル取得エラー: $e');
+      debugPrint('タイトル取得エラー: $e');
       return null;
     }
   }
 
   /// 現在のページの章番号を取得
-  Future<int?> getCurrentChapter(WebViewController controller, String currentUrl) async {
+  Future<int?> getCurrentChapter(
+      WebViewController controller, String currentUrl) async {
     try {
       // URLから章番号を抽出を試行
       if (isSerialNovelFromUrl(currentUrl)) {
-        final regex =
-            RegExp(r'https://(?:ncode|novel18)\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
+        final regex = RegExp(
+            r'https://(?:ncode|novel18)\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
         final match = regex.firstMatch(currentUrl);
         if (match != null) {
           return int.tryParse(match.group(2)!) ?? 1;
         }
       }
-  
+
       // JavaScriptで章番号を取得を試行
       final chapterText = await controller.runJavaScriptReturningResult(r'''
         (function() {
@@ -677,11 +704,11 @@ class WebViewViewModel extends ChangeNotifier {
           return urlMatch ? urlMatch[1] : '0';
         })();
       ''');
-  
-      final chapterString = chapterText.toString() ?? '0';
+
+      final chapterString = chapterText.toString();
       return int.tryParse(chapterString) ?? 0;
     } catch (e) {
-      print('章番号取得エラー: $e');
+      debugPrint('章番号取得エラー: $e');
       return 0;
     }
   }

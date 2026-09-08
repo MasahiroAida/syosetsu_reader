@@ -26,7 +26,17 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant SearchScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isR18 != widget.isR18) {
+      _viewModel.dispose();
+      _viewModel = SearchViewModel(isR18: widget.isR18);
+    }
+  }
+
+  @override
   void dispose() {
+    _viewModel.dispose();
     _keywordController.dispose();
     _excludeController.dispose();
     super.dispose();
@@ -63,7 +73,9 @@ class _SearchScreenState extends State<SearchScreen> {
                 title: const Text('小説検索'),
                 actions: [
                   IconButton(
-                    icon: Icon(viewModel.showFilters ? Icons.filter_list_off : Icons.filter_list),
+                    icon: Icon(viewModel.showFilters
+                        ? Icons.filter_list_off
+                        : Icons.filter_list),
                     onPressed: () {
                       viewModel.toggleFilters();
                     },
@@ -74,16 +86,15 @@ class _SearchScreenState extends State<SearchScreen> {
                 children: [
                   // 検索フィールド
                   _buildSearchFields(viewModel),
-                  
+
                   // フィルター設定
-                  if (viewModel.showFilters) 
-                    Expanded(
-                      flex: 0,
+                  if (viewModel.showFilters)
+                    Flexible(
                       child: SingleChildScrollView(
                         child: _buildFilters(viewModel),
                       ),
                     ),
-                  
+
                   // 検索結果
                   Expanded(
                     child: _buildSearchResults(viewModel),
@@ -129,7 +140,9 @@ class _SearchScreenState extends State<SearchScreen> {
               SizedBox(
                 height: 56, // TextFieldの高さに合わせる
                 child: ElevatedButton(
-                  onPressed: viewModel.isLoading ? null : () => _performSearch(viewModel),
+                  onPressed: viewModel.isLoading
+                      ? null
+                      : () => _performSearch(viewModel),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     shape: RoundedRectangleBorder(
@@ -168,7 +181,8 @@ class _SearchScreenState extends State<SearchScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // ジャンル選択
-          const Text('ジャンル', style: TextStyle(fontWeight: FontWeight.bold)),
+          Text(widget.isR18 ? '掲載サイト' : 'ジャンル',
+              style: const TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Container(
             height: 160,
@@ -181,7 +195,10 @@ class _SearchScreenState extends State<SearchScreen> {
               child: Wrap(
                 spacing: 6,
                 runSpacing: 4,
-                children: ApiService.genres.entries.map((entry) {
+                children:
+                    (widget.isR18 ? ApiService.r18Genres : ApiService.genres)
+                        .entries
+                        .map((entry) {
                   return FilterChip(
                     label: Text(
                       entry.value.replaceAll('〔', '\n').replaceAll('〕', ''),
@@ -199,17 +216,19 @@ class _SearchScreenState extends State<SearchScreen> {
                       viewModel.updateGenres(newGenres);
                     },
                     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    labelPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                    labelPadding:
+                        const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
                   );
                 }).toList(),
               ),
             ),
           ),
-          
+
           const SizedBox(height: 16),
-          
+
           // 作品に含まれる要素
-          const Text('作品に含まれる要素', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text('作品に含まれる要素',
+              style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Container(
             height: 120,
@@ -222,12 +241,15 @@ class _SearchScreenState extends State<SearchScreen> {
               child: Wrap(
                 spacing: 6,
                 runSpacing: 4,
-                children: NovelKeywords.keywords.map((keyword) {
+                children: NovelKeywords.keywords
+                    .where((keyword) => !widget.isR18 || keyword != 'R15')
+                    .map((keyword) {
                   return FilterChip(
                     label: Text(keyword, style: const TextStyle(fontSize: 11)),
                     selected: viewModel.selectedKeywords.contains(keyword),
                     onSelected: (selected) {
-                      final newKeywords = Set<String>.from(viewModel.selectedKeywords);
+                      final newKeywords =
+                          Set<String>.from(viewModel.selectedKeywords);
                       if (selected) {
                         newKeywords.add(keyword);
                       } else {
@@ -236,21 +258,23 @@ class _SearchScreenState extends State<SearchScreen> {
                       viewModel.updateKeywords(newKeywords);
                     },
                     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    labelPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+                    labelPadding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
                   );
                 }).toList(),
               ),
             ),
           ),
-          
+
           const SizedBox(height: 16),
-          
+
           // 作品タイプと並び順
           Row(
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  value: viewModel.selectedType,
+                  isExpanded: true,
+                  initialValue: viewModel.selectedType,
                   decoration: const InputDecoration(
                     labelText: '作品タイプ',
                     border: OutlineInputBorder(),
@@ -258,7 +282,8 @@ class _SearchScreenState extends State<SearchScreen> {
                   items: WorkTypes.types.entries.map((entry) {
                     return DropdownMenuItem(
                       value: entry.key,
-                      child: Text(entry.value),
+                      child: Text(entry.value,
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
                     );
                   }).toList(),
                   onChanged: (value) {
@@ -269,7 +294,8 @@ class _SearchScreenState extends State<SearchScreen> {
               const SizedBox(width: 16),
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  value: viewModel.selectedOrder,
+                  isExpanded: true,
+                  initialValue: viewModel.selectedOrder,
                   decoration: const InputDecoration(
                     labelText: '並び順',
                     border: OutlineInputBorder(),
@@ -277,7 +303,8 @@ class _SearchScreenState extends State<SearchScreen> {
                   items: OrderTypes.types.entries.map((entry) {
                     return DropdownMenuItem(
                       value: entry.key,
-                      child: Text(entry.value),
+                      child: Text(entry.value,
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
                     );
                   }).toList(),
                   onChanged: (value) {
@@ -293,16 +320,37 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildSearchResults(SearchViewModel viewModel) {
-    if (viewModel.searchResults.isEmpty && !viewModel.isLoading) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+    if (viewModel.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (viewModel.errorMessage != null) {
+      return Center(
+          child: SingleChildScrollView(
+              child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(viewModel.errorMessage!, textAlign: TextAlign.center),
+          TextButton(
+              onPressed: () => _performSearch(viewModel),
+              child: const Text('再試行')),
+        ],
+      )));
+    }
+    if (viewModel.searchResults.isEmpty) {
+      return Center(
+        child: SingleChildScrollView(
+            child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.search, size: 64, color: Colors.grey),
-            SizedBox(height: 16),
-            Text('キーワードを入力して検索してください'),
+            const Icon(Icons.search, size: 64, color: Colors.grey),
+            const SizedBox(height: 16),
+            Text(
+                viewModel.hasSearched
+                    ? '検索結果が見つかりませんでした'
+                    : 'キーワードや条件を指定して検索してください',
+                textAlign: TextAlign.center),
           ],
-        ),
+        )),
       );
     }
 
@@ -367,22 +415,10 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _performSearch(SearchViewModel viewModel) async {
-    if (_keywordController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('キーワードを入力してください')),
-      );
-      return;
-    }
-
+    FocusScope.of(context).unfocus();
     await viewModel.performSearch(
       keyword: _keywordController.text,
       excludeKeyword: _excludeController.text,
     );
-
-    if (viewModel.searchResults.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('検索結果が見つかりませんでした')),
-      );
-    }
   }
 }

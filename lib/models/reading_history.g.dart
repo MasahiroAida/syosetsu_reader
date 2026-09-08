@@ -27,13 +27,14 @@ class ReadingHistoryAdapter extends TypeAdapter<ReadingHistory> {
       url: fields[7] as String,
       scrollPosition: fields[8] as double?,
       isSerialNovel: fields[9] as bool,
+      lastUpdate: fields[10] as DateTime?,
     );
   }
 
   @override
   void write(BinaryWriter writer, ReadingHistory obj) {
     writer
-      ..writeByte(10)
+      ..writeByte(11)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -53,7 +54,9 @@ class ReadingHistoryAdapter extends TypeAdapter<ReadingHistory> {
       ..writeByte(8)
       ..write(obj.scrollPosition)
       ..writeByte(9)
-      ..write(obj.isSerialNovel);
+      ..write(obj.isSerialNovel)
+      ..writeByte(10)
+      ..write(obj.lastUpdate);
   }
 
   @override

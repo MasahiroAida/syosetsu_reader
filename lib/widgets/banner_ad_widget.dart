@@ -16,38 +16,54 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
   @override
   void initState() {
     super.initState();
-    _loadBannerAd();
+    if (AdHelper.isSupported) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadBannerAd();
+      });
+    }
   }
 
-  void _loadBannerAd() {
-    _bannerAd = BannerAd(
-      adUnitId: AdHelper.currentBannerAdUnitId,
-      size: AdSize.banner,
-      request: const AdRequest(),
-      listener: BannerAdListener(
-        onAdLoaded: (ad) {
-          setState(() {
-            _isAdLoaded = true;
-          });
-          print('バナー広告が読み込まれました');
-        },
-        onAdFailedToLoad: (ad, error) {
-          print('バナー広告の読み込みに失敗しました: $error');
-          ad.dispose();
-          setState(() {
-            _isAdLoaded = false;
-          });
-        },
-        onAdOpened: (ad) {
-          print('バナー広告が開かれました');
-        },
-        onAdClosed: (ad) {
-          print('バナー広告が閉じられました');
-        },
-      ),
-    );
+  Future<void> _loadBannerAd() async {
+    try {
+      await AdHelper.initialize();
+      if (!mounted) return;
+      _bannerAd = BannerAd(
+        adUnitId: AdHelper.currentBannerAdUnitId,
+        size: AdSize.banner,
+        request: const AdRequest(),
+        listener: BannerAdListener(
+          onAdLoaded: (ad) {
+            if (!mounted || !identical(_bannerAd, ad)) return;
+            setState(() {
+              _isAdLoaded = true;
+            });
+            debugPrint('バナー広告が読み込まれました');
+          },
+          onAdFailedToLoad: (ad, error) {
+            debugPrint('バナー広告の読み込みに失敗しました: $error');
+            ad.dispose();
+            if (!mounted || !identical(_bannerAd, ad)) return;
+            _bannerAd = null;
+            setState(() {
+              _isAdLoaded = false;
+            });
+          },
+          onAdOpened: (ad) {
+            debugPrint('バナー広告が開かれました');
+          },
+          onAdClosed: (ad) {
+            debugPrint('バナー広告が閉じられました');
+          },
+        ),
+      );
 
-    _bannerAd?.load();
+      await _bannerAd?.load();
+    } catch (e) {
+      debugPrint('バナー広告初期化エラー: $e');
+      _bannerAd?.dispose();
+      _bannerAd = null;
+      if (mounted) setState(() => _isAdLoaded = false);
+    }
   }
 
   @override

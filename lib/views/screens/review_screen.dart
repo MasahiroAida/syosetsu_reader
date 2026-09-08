@@ -22,6 +22,12 @@ class _ReviewScreenState extends State<ReviewScreen> {
   }
 
   @override
+  void dispose() {
+    _viewModel.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider.value(
       value: _viewModel,
@@ -102,9 +108,9 @@ class _ReviewScreenState extends State<ReviewScreen> {
                       _buildRatingStars(review.rating),
                     ],
                   ),
-                  
+
                   const SizedBox(height: 12),
-                  
+
                   // レビュー内容
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -123,9 +129,9 @@ class _ReviewScreenState extends State<ReviewScreen> {
                       ),
                     ),
                   ),
-                  
+
                   const SizedBox(height: 16),
-                  
+
                   // アクションボタン
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
@@ -155,7 +161,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
                               builder: (context) => WebViewScreen(
                                 novelId: review.id,
                                 title: review.novelTitle,
-                                url: 'https://ncode.syosetu.com/${review.id.toLowerCase()}/',
+                                url:
+                                    'https://ncode.syosetu.com/${review.id.toLowerCase()}/',
                               ),
                             ),
                           );

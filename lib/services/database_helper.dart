@@ -2,6 +2,7 @@ import 'package:hive/hive.dart';
 import '../models/novel.dart';
 import '../models/bookmark.dart';
 import '../models/reading_history.dart';
+import '../utils/novel_url.dart';
 
 class DatabaseHelper {
   static const String novelBoxName = 'novels';
@@ -10,7 +11,8 @@ class DatabaseHelper {
 
   Box<Novel> get _novelBox => Hive.box<Novel>(novelBoxName);
   Box<Bookmark> get _bookmarkBox => Hive.box<Bookmark>(bookmarkBoxName);
-  Box<ReadingHistory> get _historyBox => Hive.box<ReadingHistory>(historyBoxName);
+  Box<ReadingHistory> get _historyBox =>
+      Hive.box<ReadingHistory>(historyBoxName);
 
   // Novel operations
   Future<int> insertNovel(Novel novel) async {
@@ -47,11 +49,15 @@ class DatabaseHelper {
   }
 
   Future<Bookmark?> getBookmarkByNovelId(String novelId) async {
-    try {
-      return _bookmarkBox.values.firstWhere((b) => b.novelId == novelId);
-    } catch (_) {
-      return null;
+    final normalizedId = novelId.toLowerCase();
+    final direct = _bookmarkBox.get(normalizedId);
+    if (direct != null && direct.novelId.toLowerCase() == normalizedId) {
+      return direct;
     }
+    for (final bookmark in _bookmarkBox.values) {
+      if (bookmark.novelId.toLowerCase() == normalizedId) return bookmark;
+    }
+    return null;
   }
 
   Future<int> updateBookmark(Bookmark bookmark) async {
@@ -97,11 +103,15 @@ class DatabaseHelper {
   }
 
   Future<ReadingHistory?> getReadingHistoryByNovelId(String novelId) async {
-    try {
-      return _historyBox.values.firstWhere((h) => h.novelId == novelId);
-    } catch (_) {
-      return null;
+    final normalizedId = novelId.toLowerCase();
+    final direct = _historyBox.get(normalizedId);
+    if (direct != null && direct.novelId.toLowerCase() == normalizedId) {
+      return direct;
     }
+    for (final history in _historyBox.values) {
+      if (history.novelId.toLowerCase() == normalizedId) return history;
+    }
+    return null;
   }
 
   /// 読書履歴のチャプターを更新（最終閲覧時刻も自動更新）
@@ -109,6 +119,8 @@ class DatabaseHelper {
     final history = await getReadingHistoryByNovelId(novelId);
     if (history != null) {
       history.currentChapter = currentChapter;
+      history.url = buildNovelUrl(novelId, currentChapter,
+          r18: Uri.tryParse(history.url)?.host == 'novel18.syosetu.com');
       history.lastViewed = DateTime.now(); // 最終閲覧時刻を現在時刻に更新
       await history.save();
     }
@@ -137,6 +149,8 @@ class DatabaseHelper {
     final history = await getReadingHistoryByNovelId(novelId);
     if (history != null) {
       history.currentChapter = currentChapter;
+      history.url = buildNovelUrl(novelId, currentChapter,
+          r18: Uri.tryParse(history.url)?.host == 'novel18.syosetu.com');
       history.scrollPosition = scrollPosition;
       history.lastViewed = DateTime.now(); // 最終閲覧時刻を現在時刻に更新
       await history.save();
@@ -157,24 +171,10 @@ class DatabaseHelper {
     return 0;
   }
 
-  bool isSerialNovelFromUrl(String url) {
-    final serialRegex =
-        RegExp(r'https://(?:ncode|novel18)\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
-    return serialRegex.hasMatch(url);
-  }
+  bool isSerialNovelFromUrl(String url) =>
+      (NovelUrl.parse(url)?.chapter ?? 0) > 0;
 
-  int extractChapterFromUrl(String url) {
-    if (!isSerialNovelFromUrl(url)) return 0;
-
-    final regex =
-        RegExp(r'https://(?:ncode|novel18)\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
-    final match = regex.firstMatch(url);
-
-    if (match != null) {
-      return int.tryParse(match.group(2)!) ?? 0;
-    }
-    return 0;
-  }
+  int extractChapterFromUrl(String url) => NovelUrl.parse(url)?.chapter ?? 0;
 
   String buildNovelUrl(String novelId, int chapter, {bool r18 = false}) {
     final domain = r18 ? 'novel18' : 'ncode';
@@ -186,23 +186,22 @@ class DatabaseHelper {
     }
   }
 
-  /// ブックマーク情報を更新（最終閲覧時刻も自動更新）
+  /// ブックマーク情報を更新（閲覧順序を維持）
   Future<void> updateBookmarkInfo(
       String novelId, String title, String author) async {
     final bookmark = await getBookmarkByNovelId(novelId);
     if (bookmark != null) {
       bookmark
         ..novelTitle = title
-        ..author = author
-        ..lastViewed = DateTime.now(); // 最終閲覧時刻を現在時刻に更新
+        ..author = author;
       await bookmark.save();
     }
   }
 
-  /// 読書履歴の情報を更新（最終閲覧時刻も自動更新）
+  /// 読書履歴の情報を更新（閲覧順序を維持）
   Future<void> updateReadingHistoryInfo(
       String novelId, String title, String author, int totalChapters,
-      {bool? isSerialNovel}) async {
+      {bool? isSerialNovel, DateTime? lastUpdate}) async {
     final history = await getReadingHistoryByNovelId(novelId);
     if (history != null) {
       history
@@ -210,7 +209,7 @@ class DatabaseHelper {
         ..author = author
         ..totalChapters = totalChapters
         ..isSerialNovel = isSerialNovel ?? history.isSerialNovel
-        ..lastViewed = DateTime.now(); // 最終閲覧時刻を現在時刻に更新
+        ..lastUpdate = lastUpdate ?? history.lastUpdate;
       await history.save();
     }
   }
@@ -220,16 +219,16 @@ class DatabaseHelper {
     final bookmark = await getBookmarkByNovelId(novelId);
     if (bookmark != null) {
       bookmark.isSerialNovel = isSerialNovel;
-      bookmark.lastViewed = DateTime.now(); // この更新でも最終閲覧時刻を更新
       await bookmark.save();
     }
   }
 
-  Future<void> cleanOldHistory({int keepCount = 20}) async {
-    final list = await getAllReadingHistory();
-    for (int i = keepCount; i < list.length; i++) {
-      await list[i].delete();
+  Future<void> cleanOldHistory({int keepCount = 100}) async {
+    if (keepCount < 0) {
+      throw ArgumentError.value(keepCount, 'keepCount', 'must be non-negative');
     }
+    final list = await getAllReadingHistory();
+    await _historyBox.deleteAll(list.skip(keepCount).map((item) => item.key));
   }
 
   Future<Map<String, int>> getDatabaseStats() async {

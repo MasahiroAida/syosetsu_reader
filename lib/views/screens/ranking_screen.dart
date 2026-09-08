@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../viewmodels/ranking_viewmodel.dart';
@@ -28,6 +27,7 @@ class _RankingScreenState extends State<RankingScreen>
   @override
   void dispose() {
     _tabController.dispose();
+    _viewModel.dispose();
     super.dispose();
   }
 
@@ -50,11 +50,12 @@ class _RankingScreenState extends State<RankingScreen>
                     dropdownColor: Theme.of(context).colorScheme.surface,
                     items: [
                       const DropdownMenuItem(value: 0, child: Text('すべて')),
-                      ...ApiService.genres.entries.map((entry) => DropdownMenuItem(
-                            value: entry.key,
-                            child: Text(entry.value,
-                                overflow: TextOverflow.ellipsis),
-                          ))
+                      ...ApiService.genres.entries
+                          .map((entry) => DropdownMenuItem(
+                                value: entry.key,
+                                child: Text(entry.value,
+                                    overflow: TextOverflow.ellipsis),
+                              ))
                     ],
                     onChanged: (value) {
                       if (value != null) {
@@ -97,14 +98,19 @@ class _RankingScreenState extends State<RankingScreen>
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (novels.isEmpty) {
-      return const Center(
+    final error = viewModel.errorMessage(type);
+    if (error != null || novels.isEmpty) {
+      return Center(
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.trending_up, size: 64, color: Colors.grey),
-            SizedBox(height: 16),
-            Text('ランキングデータを取得できませんでした'),
+            const Icon(Icons.trending_up, size: 64, color: Colors.grey),
+            const SizedBox(height: 16),
+            Text(error ?? '該当するランキング作品がありません'),
+            TextButton(
+              onPressed: () => viewModel.refreshRanking(type),
+              child: const Text('再読み込み'),
+            ),
           ],
         ),
       );
@@ -113,9 +119,11 @@ class _RankingScreenState extends State<RankingScreen>
     return RefreshIndicator(
       onRefresh: () => viewModel.refreshRanking(type),
       child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
         itemCount: novels.length,
         itemBuilder: (context, index) {
           final novel = novels[index];
+          final rank = novel.rank > 0 ? novel.rank : index + 1;
           return Card(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: ListTile(
@@ -123,12 +131,12 @@ class _RankingScreenState extends State<RankingScreen>
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: _getRankingColor(index + 1),
+                  color: _getRankingColor(rank),
                   shape: BoxShape.circle,
                 ),
                 child: Center(
                   child: Text(
-                    '${index + 1}',
+                    '$rank',
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
@@ -150,18 +158,17 @@ class _RankingScreenState extends State<RankingScreen>
                   Text('ジャンル: ${novel.genre}'),
                   if (novel.novelType != 1) // 連載中以外のタイプ
                     const Text('短編小説')
+                  else if (novel.end == 1)
+                    Text('連載中 ${novel.totalChapters}話 ${novel.length}文字')
                   else
-                    if (novel.end == 1)
-                      Text('連載中 ${novel.general_all_no}話 ${novel.length}文字')
-                    else
-                      Text('完結済み ${novel.general_all_no}話 ${novel.length}文字'),
+                    Text('完結済み ${novel.totalChapters}話 ${novel.length}文字'),
                   const SizedBox(height: 4),
                   Row(
                     children: [
                       Icon(Icons.star, size: 16, color: Colors.amber[600]),
                       const SizedBox(width: 4),
                       Text(
-                        '${novel.point} pt',  
+                        '${novel.point} pt',
                         style: TextStyle(
                           color: Colors.amber[800],
                           fontWeight: FontWeight.w500,
@@ -171,7 +178,7 @@ class _RankingScreenState extends State<RankingScreen>
                   ),
                 ],
               ),
-              trailing: _buildRankingBadge(index + 1),
+              trailing: _buildRankingBadge(rank),
               onTap: () {
                 Navigator.push(
                   context,
@@ -179,7 +186,8 @@ class _RankingScreenState extends State<RankingScreen>
                     builder: (context) => WebViewScreen(
                       novelId: novel.ncode,
                       title: novel.title,
-                      url: 'https://ncode.syosetu.com/${novel.ncode.toLowerCase()}/',
+                      url:
+                          'https://ncode.syosetu.com/${novel.ncode.toLowerCase()}/',
                     ),
                   ),
                 );
@@ -208,7 +216,7 @@ class _RankingScreenState extends State<RankingScreen>
     if (rank <= 3) {
       IconData icon;
       Color color;
-      
+
       switch (rank) {
         case 1:
           icon = Icons.emoji_events;
@@ -225,7 +233,7 @@ class _RankingScreenState extends State<RankingScreen>
         default:
           return null;
       }
-      
+
       return Icon(icon, color: color, size: 28);
     }
     return null;

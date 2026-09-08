@@ -31,6 +31,9 @@ class Bookmark extends HiveObject {
   @HiveField(8)
   bool isSerialNovel;
 
+  @HiveField(9)
+  DateTime? lastUpdate;
+
   Bookmark({
     required this.id,
     required this.novelId,
@@ -41,6 +44,7 @@ class Bookmark extends HiveObject {
     required this.lastViewed,
     this.scrollPosition,
     this.isSerialNovel = false,
+    this.lastUpdate,
   });
 
   String get chapterDisplay =>

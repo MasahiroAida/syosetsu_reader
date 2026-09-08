@@ -1,5 +1,6 @@
-import 'package:http/http.dart' as http;
 import 'dart:convert';
+
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import '../models/search_novel.dart';
 import '../models/ranking_novel.dart';
@@ -7,13 +8,44 @@ import '../models/review.dart';
 
 class ApiService {
   static const String naroApiBase = 'https://api.syosetu.com/novelapi/api/';
-  static const String naroR18ApiBase = 'https://api.syosetu.com/novel18api/api/';
+  static const String naroR18ApiBase =
+      'https://api.syosetu.com/novel18api/api/';
   static const String rankingApiBase = 'https://api.syosetu.com/rank/rankget/';
-  
-  // キャッシュ管理
-  static final Map<String, dynamic> _cache = {};
-  static final Map<String, DateTime> _cacheTimestamps = {};
   static const Duration cacheExpiry = Duration(minutes: 30);
+  static const _headers = {
+    'User-Agent': 'Syosetsu Reader App/1.0',
+    'Accept': 'application/json',
+    'Accept-Encoding': 'identity',
+  };
+
+  final http.Client? _client;
+  final DateTime Function() _now;
+  static final Map<String, _RankingCacheEntry> _sharedRankingCache = {};
+  static final Map<String, Future<List<Map<String, dynamic>>>>
+      _sharedRankingRequests = {};
+  final Map<String, _RankingCacheEntry> _rankingCache;
+  final Map<String, Future<List<Map<String, dynamic>>>> _rankingRequests;
+
+  ApiService({http.Client? client, DateTime Function()? now})
+      : _client = client,
+        _now = now ?? DateTime.now,
+        _rankingCache =
+            client == null && now == null ? _sharedRankingCache : {},
+        _rankingRequests =
+            client == null && now == null ? _sharedRankingRequests : {};
+
+  static void clearCache() {
+    _sharedRankingCache.clear();
+    // Pending requests may finish, but must not repopulate the cleared cache.
+    _sharedRankingRequests.clear();
+  }
+
+  static const Map<int, String> r18Genres = {
+    1: 'ノクターンノベルズ',
+    2: 'ムーンライトノベルズ（女性向け）',
+    3: 'ムーンライトノベルズ（BL）',
+    4: 'ミッドナイトノベルズ',
+  };
 
   // ジャンル定義
   static const Map<int, String> genres = {
@@ -39,108 +71,54 @@ class ApiService {
     9999: 'その他〔その他〕',
   };
 
-  // 日本時間の現在日時を取得
-  static DateTime _getJapanTime() {
-    final now = DateTime.now().toUtc();
-    return now.add(const Duration(hours: 9)); // JST = UTC+9
-  }
-
-  // rtypeに応じた適切な日付を計算
-  static String _getFormattedDateForRtype(String rtype) {
-    final japanTime = _getJapanTime();
-    final calcTime = japanTime.add(const Duration(hours: -6)); // 日本時間-6で計算
+  String _getFormattedDateForRtype(String rtype) {
+    // Daily snapshots are generated between 04:00 and 07:00 JST.
+    // Use the previous snapshot until that window has finished (UTC + 9 - 7).
+    final calcTime = _now().toUtc().add(const Duration(hours: 2));
     final formatter = DateFormat('yyyyMMdd');
-    
     switch (rtype) {
       case 'q':
-        // 四半期ランキング：当四半期の初日
-        final quarter = ((calcTime.month - 1) ~/ 3) * 3 + 1;
-        final firstDayOfQuarter = DateTime(calcTime.year, quarter, 1);
-        return formatter.format(firstDayOfQuarter);
       case 'm':
-        // 月別ランキング：今月の1日
-        final firstDayOfMonth = DateTime(calcTime.year, calcTime.month, 1);
-        return formatter.format(firstDayOfMonth);
-        
+        // Quarterly rankings also have a snapshot on the first of EVERY month.
+        return formatter.format(DateTime.utc(calcTime.year, calcTime.month, 1));
       case 'w':
-        // 週別ランキング：直近の火曜日
-        // 火曜日 = weekday 2
-        final currentWeekday = calcTime.weekday;
-        late DateTime targetTuesday;
-        
-        if (currentWeekday == DateTime.tuesday) {
-          // 今日が火曜日の場合
-          targetTuesday = calcTime;
-        } else if (currentWeekday > DateTime.tuesday) {
-          // 今週の火曜日が過ぎている場合（水〜月）
-          final daysAfterTuesday = currentWeekday - DateTime.tuesday;
-          targetTuesday = calcTime.subtract(Duration(days: daysAfterTuesday));
-        } else {
-          // 今週の火曜日がまだ来ていない場合（月）
-          final daysBeforeTuesday = DateTime.tuesday - currentWeekday;
-          targetTuesday = calcTime.subtract(Duration(days: 7 - daysBeforeTuesday));
-        }
-        
-        return formatter.format(targetTuesday);
-        
-      case 'd':
+        final daysAfterTuesday = (calcTime.weekday - DateTime.tuesday + 7) % 7;
+        return formatter.format(
+          calcTime.subtract(Duration(days: daysAfterTuesday)),
+        );
       default:
-        // 日別ランキング：今日
         return formatter.format(calcTime);
     }
   }
 
-  // 小説詳細情報を取得
-  Future<List<dynamic>> _getNovelDetails(List<String> ncodes) async {
-    if (ncodes.isEmpty) return [];
-    
-    try {
-      // ncodeをハイフンで繋げる
-      final ncodeParam = ncodes.map((ncode) => ncode.toLowerCase()).join('-');
-      
-      // HTTPヘッダーを設定
-      final headers = {
-        'User-Agent': 'Syosetsu Reader App/1.0',
-        'Accept': 'application/json',
-        'Accept-Encoding': 'identity',
-      };
-      
-      final response = await http.get(
-        Uri.parse('$naroApiBase?out=json&lim=300&ncode=$ncodeParam'),
-        headers: headers,
-      ).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          throw Exception('小説詳細リクエストタイムアウト');
-        },
-      );
-
-      if (response.statusCode == 200) {
-        // レスポンスの内容をチェック
-        final responseBody = response.body.trim();
-        if (responseBody.isEmpty) {
-          print('小説詳細取得エラー: 空のレスポンス');
-          return [];
-        }
-        
-        // JSONとして有効かチェック
-        if (!responseBody.startsWith('{') && !responseBody.startsWith('[')) {
-          print('小説詳細取得エラー: JSONではないレスポンス: ${responseBody.substring(0, 100)}');
-          return [];
-        }
-        
-        final data = json.decode(responseBody);
-        return data is List ? data.skip(1).toList() : [];
-      } else {
-        print('小説詳細取得エラー: HTTP ${response.statusCode} - ${response.body}');
-      }
-    } catch (e) {
-      print('小説詳細取得エラー: $e');
+  Future<List<Map<String, dynamic>>> _getJsonList(Uri uri) async {
+    final response = await (_client?.get(uri, headers: _headers) ??
+            http.get(uri, headers: _headers))
+        .timeout(const Duration(seconds: 30));
+    if (response.statusCode != 200) {
+      throw http.ClientException('HTTP ${response.statusCode}', uri);
     }
-    return [];
+    // The API always sends UTF-8, including responses without a charset header.
+    final data = jsonDecode(utf8.decode(response.bodyBytes));
+    if (data is! List || data.any((item) => item is! Map<String, dynamic>)) {
+      throw const FormatException('APIから無効なデータが返されました');
+    }
+    return data.cast<Map<String, dynamic>>();
   }
 
-  // 小説検索
+  Future<List<Map<String, dynamic>>> _getNovelDetails(
+      List<String> ncodes) async {
+    if (ncodes.isEmpty) return [];
+    final uri = Uri.parse(naroApiBase).replace(queryParameters: {
+      'out': 'json',
+      'lim': '300',
+      'ncode': ncodes.toSet().join('-'),
+      'of': 'n-t-w-g-nt-e-l-ga',
+    });
+    final data = await _getJsonList(uri);
+    return data.where((item) => !item.containsKey('allcount')).toList();
+  }
+
   Future<List<SearchNovel>> searchNovels({
     String? word,
     String? notword,
@@ -152,199 +130,127 @@ class ApiService {
     int limit = 20,
     bool r18 = false,
   }) async {
-    try {
-      final params = <String, String>{
-        'out': 'json',
-        'lim': limit.toString(),
-        'order': order,
-      };
-
-      if (word != null && word.isNotEmpty) {
-        params['word'] = word;
+    final params = <String, String>{
+      'out': 'json',
+      'lim': limit.clamp(1, 500).toString(),
+      'order': order,
+      'of': r18 ? 'n-t-w-s-k-ng-ga-gl-l' : 'n-t-w-s-k-g-ga-gl-l',
+    };
+    // `keyword` is a boolean search-field switch, not a list of words.
+    final terms = <String>{
+      if (word != null && word.trim().isNotEmpty) word.trim()
+    };
+    final featureParams = {
+      if (!r18) 'R15': 'isr15',
+      'ボーイズラブ': 'isbl',
+      'ガールズラブ': 'isgl',
+      '残酷な描写あり': 'iszankoku',
+      '異世界転生': 'istensei',
+      '異世界転移': 'istenni',
+    };
+    for (final keyword in keywords ?? <String>[]) {
+      final term = keyword.trim();
+      final feature = featureParams[term];
+      if (feature != null) {
+        params[feature] = '1';
+      } else if (term.isNotEmpty) {
+        terms.add(term);
       }
-      
-      if (notword != null && notword.isNotEmpty) {
-        params['notword'] = notword;
-      }
-
-      if (genres != null && genres.isNotEmpty) {
-        params['genre'] = genres.join('-');
-      }
-
-      if (keywords != null && keywords.isNotEmpty) {
-        params['keyword'] = keywords.join(' ');
-      }
-
-      if (type != null && type.isNotEmpty) {
-        params['type'] = type;
-      }
-
-      if (lastup != null && lastup.isNotEmpty) {
-        params['lastup'] = lastup;
-      }
-
-      final base = r18 ? naroR18ApiBase : naroApiBase;
-      final uri = Uri.parse(base).replace(queryParameters: params);
-      print('リクエストURL: $uri');
-      
-      // HTTPヘッダーを設定
-      final headers = {
-        'User-Agent': 'Syosetsu Reader App/1.0',
-        'Accept': 'application/json',
-        'Accept-Encoding': 'identity', // gzipを無効化
-      };
-      
-      final response = await http.get(uri, headers: headers).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          throw Exception('リクエストタイムアウト');
-        },
-      );
-      print('HTTPステータス: ${response.statusCode}');
-      print('レスポンスヘッダー: ${response.headers}');
-
-      if (response.statusCode == 200) {
-        // レスポンスの内容をチェック
-        final responseBody = response.body.trim();
-        print('レスポンス長: ${responseBody.length}');
-        print('レスポンス内容（最初の200文字）: ${responseBody.length > 200 ? responseBody.substring(0, 200) : responseBody}');
-        
-        if (responseBody.isEmpty) {
-          print('小説検索エラー: 空のレスポンス');
-          return [];
-        }
-        
-        // JSONとして有効かチェック
-        if (!responseBody.startsWith('{') && !responseBody.startsWith('[')) {
-          print('小説検索エラー: JSONではないレスポンス: ${responseBody.length > 100 ? responseBody.substring(0, 100) : responseBody}');
-          return [];
-        }
-        
-        final data = json.decode(responseBody);
-        final List<dynamic> novelData = data is List ? data.skip(1).toList() : [];
-        
-        return novelData.map((e) => SearchNovel.fromMap(e)).toList();
-      } else {
-        print('小説検索エラー: HTTP ${response.statusCode} - ${response.body}');
-      }
-    } catch (e) {
-      print('小説検索エラー: $e');
     }
-    return [];
+    if (terms.isNotEmpty) params['word'] = terms.join(' ');
+    if (notword != null && notword.trim().isNotEmpty) {
+      params['notword'] = notword.trim();
+    }
+    if (genres != null && genres.isNotEmpty) {
+      params[r18 ? 'nocgenre' : 'genre'] = genres.join('-');
+    }
+    if (type != null && type.isNotEmpty) params['type'] = type;
+    if (lastup != null && lastup.isNotEmpty) params['lastup'] = lastup;
+    final base = r18 ? naroR18ApiBase : naroApiBase;
+    final data = await _getJsonList(
+      Uri.parse(base).replace(queryParameters: params),
+    );
+    return data
+        .where((item) => !item.containsKey('allcount'))
+        .map(SearchNovel.fromMap)
+        .toList();
   }
 
-  // ランキング取得
-  Future<List<RankingNovel>> getRanking({String rtype = 'd', int? genre}) async {
-    final genreKey = genre != null ? genre.toString() : 'all';
-    final cacheKey = 'ranking_${rtype}_$genreKey';
-    
-    // キャッシュチェック
-    if (_cache.containsKey(cacheKey) && _cacheTimestamps.containsKey(cacheKey)) {
-      final cacheTime = _cacheTimestamps[cacheKey]!;
-      if (DateTime.now().difference(cacheTime) < cacheExpiry) {
-        return (_cache[cacheKey] as List).map((e) => RankingNovel.fromMap(e)).toList();
+  Future<List<RankingNovel>> getRanking({
+    String rtype = 'd',
+    int? genre,
+    bool forceRefresh = false,
+  }) async {
+    final date = _getFormattedDateForRtype(rtype);
+    final key = '$date-$rtype';
+    final now = _now();
+    _rankingCache.removeWhere(
+      (_, entry) => now.difference(entry.createdAt) >= cacheExpiry,
+    );
+    var rows = forceRefresh ? null : _rankingCache[key]?.rows;
+    if (rows == null) {
+      // Genre changes can reuse both completed and in-flight period requests.
+      var request = _rankingRequests[key];
+      if (request == null) {
+        request = _fetchRanking(key);
+        _rankingRequests[key] = request;
+      }
+      try {
+        rows = await request;
+        if (identical(_rankingRequests[key], request)) {
+          _rankingCache[key] = _RankingCacheEntry(rows, _now());
+        }
+      } finally {
+        if (identical(_rankingRequests[key], request)) {
+          _rankingRequests.remove(key);
+        }
       }
     }
+    return rows
+        .where((item) => genre == null || genre <= 0 || item['genre'] == genre)
+        .map((item) => RankingNovel.fromMap({
+              ...item,
+              'genre': genres[item['genre']] ?? 'その他',
+            }))
+        .toList();
+  }
 
-    // rtypeに応じた適切な日付を取得
-    final formattedDate = _getFormattedDateForRtype(rtype);
-
-    try {
-      final queryParams = <String, String>{
+  Future<List<Map<String, dynamic>>> _fetchRanking(String key) async {
+    final data = await _getJsonList(
+      Uri.parse(rankingApiBase).replace(queryParameters: {
         'out': 'json',
-        'rtype': '$formattedDate-$rtype',
-      };
-      final uri = Uri.parse(rankingApiBase).replace(queryParameters: queryParams);
-      print('ランキングリクエストURL: $uri');
-      
-      // HTTPヘッダーを設定
-      final headers = {
-        'User-Agent': 'Syosetsu Reader App/1.0',
-        'Accept': 'application/json',
-        'Accept-Encoding': 'identity',
-      };
-      
-      final response = await http.get(
-        uri,
-        headers: headers,
-      ).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          throw Exception('ランキングリクエストタイムアウト');
-        },
-      );
-
-      if (response.statusCode == 200) {
-        // レスポンスの内容をチェック
-        final responseBody = response.body.trim();
-        if (responseBody.isEmpty) {
-          print('ランキング取得エラー: 空のレスポンス');
-          return [];
-        }
-        
-        // JSONとして有効かチェック
-        if (!responseBody.startsWith('{') && !responseBody.startsWith('[')) {
-          print('ランキング取得エラー: JSONではないレスポンス: ${responseBody.substring(0, 100)}');
-          return [];
-        }
-        
-        final data = json.decode(responseBody);
-        final List<dynamic> rankingData = data is List ? data.skip(1).toList() : [];
-        
-        if (rankingData.isEmpty) return [];
-        
-        // ランキングからncodeを抽出（int型の場合もあるのでtoString()で変換）
-        final ncodes = rankingData
-            .map((e) => e['ncode']?.toString())
-            .where((ncode) => ncode != null && ncode.isNotEmpty)
-            .cast<String>()
-            .toList();
-        
-        // 小説詳細情報を取得
-        final novelDetails = await _getNovelDetails(ncodes);
-        
-        // ランキング情報と詳細情報をマージ
-        final List<Map<String, dynamic>> mergedData = [];
-        for (int i = 0; i < rankingData.length; i++) {
-          final rankingItem = rankingData[i];
-          final ncode = rankingItem['ncode']?.toString();
-
-          if (ncode == null || ncode.isEmpty) continue;
-
-          // 対応する詳細情報を検索
-          final detailItem = novelDetails.firstWhere(
-            (detail) => detail['ncode'] == ncode,
-            orElse: () => {},
-          );
-
-          // ジャンルフィルタ
-          if (genre != null && genre > 0 && detailItem['genre'] != genre) {
-            continue;
-          }
-
-          // ランキング情報と詳細情報をマージ
-          final merged = Map<String, dynamic>.from(detailItem);
-          merged['pt'] = rankingItem['pt'];
-          merged['rank'] = rankingItem['rank'];
-          merged['ncode'] = ncode; // 確実にString型として保存
-          merged['genre'] = genres[detailItem['genre']] ?? 'その他';
-          
-          mergedData.add(merged);
-        }
-        
-        // キャッシュに保存
-        _cache[cacheKey] = mergedData;
-        _cacheTimestamps[cacheKey] = DateTime.now();
-        
-        return mergedData.map((e) => RankingNovel.fromMap(e)).toList();
-      } else {
-        print('ランキング取得エラー: HTTP ${response.statusCode} - ${response.body}');
-      }
-    } catch (e) {
-      print('ランキング取得エラー: $e');
-      // print('リクエストURL: $uri');
+        'rtype': key,
+      }),
+    );
+    // Ranking responses have no allcount header: the first row is rank 1.
+    final rankingData = data
+        .where((item) => (item['ncode']?.toString() ?? '').isNotEmpty)
+        .toList();
+    if (rankingData.isEmpty) return [];
+    final ncodes = rankingData
+        .map((item) => item['ncode'].toString().toLowerCase())
+        .toList();
+    final details = await _getNovelDetails(ncodes);
+    // Index once instead of scanning all details for every ranked novel.
+    final detailsByCode = {
+      for (final detail in details)
+        detail['ncode']?.toString().toLowerCase(): detail,
+    };
+    final mergedData = <Map<String, dynamic>>[];
+    for (final item in rankingData) {
+      final ncode = item['ncode'].toString();
+      final detail = detailsByCode[ncode.toLowerCase()];
+      // Deleted or search-excluded works cannot provide readable metadata.
+      if (detail == null) continue;
+      mergedData.add({
+        ...detail,
+        'ncode': ncode,
+        'pt': item['pt'],
+        'rank': item['rank'],
+        'genre': int.tryParse(detail['genre'].toString()) ?? 0,
+      });
     }
-    return [];
+    return mergedData;
   }
 
   // レビュー取得（仮実装）
@@ -367,4 +273,11 @@ class ApiService {
       ),
     ];
   }
+}
+
+class _RankingCacheEntry {
+  final List<Map<String, dynamic>> rows;
+  final DateTime createdAt;
+
+  _RankingCacheEntry(this.rows, this.createdAt);
 }

@@ -11,53 +11,29 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  late SettingsViewModel _viewModel;
-
-  @override
-  void initState() {
-    super.initState();
-    _viewModel = SettingsViewModel();
-    _viewModel.loadSettings();
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // ThemeProviderをSettingsViewModelに設定
-    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    _viewModel.setThemeProvider(themeProvider);
-  }
-
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider.value(
-      value: _viewModel,
-      child: Consumer<SettingsViewModel>(
-        builder: (context, viewModel, child) {
-          return Scaffold(
-            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-            appBar: AppBar(
-              title: const Text('設定'),
-            ),
-            body: ListView(
-              children: [
-                _buildSectionHeader('テーマ設定'),
-                _buildThemeSettings(viewModel),
-                
-                const Divider(height: 32),
-                
-                _buildSectionHeader('広告設定'),
-                _buildAdSettings(viewModel),
-                
-                const Divider(height: 32),
-                
-                _buildSectionHeader('その他'),
-                _buildOtherSettings(viewModel),
-              ],
-            ),
-          );
-        },
-      ),
+    return Consumer<SettingsViewModel>(
+      builder: (context, viewModel, child) {
+        return Scaffold(
+          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+          appBar: AppBar(
+            title: const Text('設定'),
+          ),
+          body: ListView(
+            children: [
+              _buildSectionHeader('テーマ設定'),
+              _buildThemeSettings(viewModel),
+              const Divider(height: 32),
+              _buildSectionHeader('広告設定'),
+              _buildAdSettings(viewModel),
+              const Divider(height: 32),
+              _buildSectionHeader('その他'),
+              _buildOtherSettings(viewModel),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -91,15 +67,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Row(
                       children: [
                         Icon(
-                          themeProvider.isDarkMode ? Icons.dark_mode : Icons.light_mode,
+                          themeProvider.isDarkMode
+                              ? Icons.dark_mode
+                              : Icons.light_mode,
                           color: Theme.of(context).primaryColor,
                         ),
                         const SizedBox(width: 8),
                         Text(
                           'テーマ設定',
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style:
+                              Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
                         ),
                       ],
                     ),
@@ -129,7 +108,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ),
-            
+
             // 互換性のためのスイッチ（既存のUIを保持）
             SwitchListTile(
               title: const Text('ダークモード'),
@@ -143,7 +122,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 color: Theme.of(context).primaryColor,
               ),
             ),
-            
+
             // colorId表示（デバッグ情報）
             if (themeProvider.isInitialized)
               ListTile(
@@ -160,7 +139,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       },
     );
   }
-  
+
   Widget _buildThemeOption(
     BuildContext context,
     AppThemeMode mode,
@@ -172,13 +151,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
         decoration: BoxDecoration(
-          color: isSelected 
-            ? Theme.of(context).primaryColor.withOpacity(0.1)
-            : Colors.transparent,
+          color: isSelected
+              ? Theme.of(context).primaryColor.withValues(alpha: 0.1)
+              : Colors.transparent,
           border: Border.all(
-            color: isSelected 
-              ? Theme.of(context).primaryColor
-              : Theme.of(context).dividerColor,
+            color: isSelected
+                ? Theme.of(context).primaryColor
+                : Theme.of(context).dividerColor,
             width: isSelected ? 2 : 1,
           ),
           borderRadius: BorderRadius.circular(8),
@@ -187,18 +166,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             Icon(
               mode == AppThemeMode.dark ? Icons.dark_mode : Icons.light_mode,
-              color: isSelected 
-                ? Theme.of(context).primaryColor
-                : Theme.of(context).iconTheme.color,
+              color: isSelected
+                  ? Theme.of(context).primaryColor
+                  : Theme.of(context).iconTheme.color,
               size: 32,
             ),
             const SizedBox(height: 8),
             Text(
               mode.displayName,
               style: TextStyle(
-                color: isSelected 
-                  ? Theme.of(context).primaryColor
-                  : Theme.of(context).textTheme.bodyMedium?.color,
+                color: isSelected
+                    ? Theme.of(context).primaryColor
+                    : Theme.of(context).textTheme.bodyMedium?.color,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
               ),
             ),
@@ -293,7 +272,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             }
           },
         ),
-        
         ListTile(
           leading: const Icon(Icons.info_outline, color: Colors.blue),
           title: const Text('アプリについて'),
@@ -320,7 +298,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             );
           },
         ),
-        
         ListTile(
           leading: const Icon(Icons.privacy_tip_outlined, color: Colors.purple),
           title: const Text('プライバシーポリシー'),
@@ -359,7 +336,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             );
           },
         ),
-        
         ListTile(
           leading: const Icon(Icons.help_outline, color: Colors.teal),
           title: const Text('ヘルプ・サポート'),

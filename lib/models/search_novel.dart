@@ -21,17 +21,21 @@ class SearchNovel {
     required this.length,
   });
 
+  static int _asInt(dynamic value) =>
+      value is num ? value.toInt() : int.tryParse(value?.toString() ?? '') ?? 0;
+
   factory SearchNovel.fromMap(Map<String, dynamic> map) {
     return SearchNovel(
-      ncode: map['ncode'] ?? '',
-      title: map['title'] ?? '',
-      author: map['writer'] ?? '',
-      story: map['story'] ?? '',
-      keyword: map['keyword'] ?? '',
-      genre: map['genre'] ?? 0,
-      totalChapters: map['general_all_no'] ?? 0,
-      lastUpdate: DateTime.tryParse(map['general_lastup'] ?? '') ?? DateTime.now(),
-      length: map['length'] ?? 0,
+      ncode: map['ncode']?.toString() ?? '',
+      title: map['title']?.toString() ?? '',
+      author: map['writer']?.toString() ?? '',
+      story: map['story']?.toString() ?? '',
+      keyword: map['keyword']?.toString() ?? '',
+      genre: _asInt(map['genre'] ?? map['nocgenre']),
+      totalChapters: _asInt(map['general_all_no']),
+      lastUpdate: DateTime.tryParse(map['general_lastup']?.toString() ?? '') ??
+          DateTime.now(),
+      length: _asInt(map['length']),
     );
   }
 }

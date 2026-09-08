@@ -23,9 +23,14 @@ enum AppThemeMode {
 
 class ThemeProvider extends ChangeNotifier {
   static const String _themeKey = 'app_theme_mode';
-  
+
   AppThemeMode _currentTheme = AppThemeMode.light;
   bool _isInitialized = false;
+  bool _disposed = false;
+  bool _themeChanged = false;
+  Future<void>? _initializing;
+  late final ThemeData _lightTheme = _buildLightTheme();
+  late final ThemeData _darkTheme = _buildDarkTheme();
 
   AppThemeMode get currentTheme => _currentTheme;
   int get colorId => _currentTheme.colorId;
@@ -33,40 +38,52 @@ class ThemeProvider extends ChangeNotifier {
   bool get isInitialized => _isInitialized;
 
   // アプリの統一テーマデータを取得
-  ThemeData get lightTheme => _buildLightTheme();
-  ThemeData get darkTheme => _buildDarkTheme();
+  ThemeData get lightTheme => _lightTheme;
+  ThemeData get darkTheme => _darkTheme;
   ThemeData get currentThemeData => isDarkMode ? darkTheme : lightTheme;
 
   /// 初期化（SharedPreferencesからテーマを読み込み）
-  Future<void> initialize() async {
-    if (_isInitialized) return;
-    
+  Future<void> initialize() {
+    if (_isInitialized || _disposed) return Future.value();
+    return _initializing ??= _initialize();
+  }
+
+  Future<void> _initialize() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final colorId = prefs.getInt(_themeKey) ?? 1; // デフォルトはライトモード(colorId=1)
-      _currentTheme = AppThemeMode.fromColorId(colorId);
-      _isInitialized = true;
-      notifyListeners();
+      if (!_disposed && !_themeChanged) {
+        _currentTheme = AppThemeMode.fromColorId(prefs.getInt(_themeKey) ?? 1);
+      }
     } catch (e) {
-      print('テーマ初期化エラー: $e');
-      _isInitialized = true;
-      notifyListeners();
+      debugPrint('テーマ初期化エラー: $e');
+    } finally {
+      if (!_disposed) {
+        _isInitialized = true;
+        notifyListeners();
+      }
     }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 
   /// テーマ変更（colorIdと互換性のある方法）
   Future<void> setColorScheme(int colorId) async {
+    if (_disposed) return;
+    _themeChanged = true;
     final newTheme = AppThemeMode.fromColorId(colorId);
-    if (_currentTheme == newTheme) return;
 
     _currentTheme = newTheme;
     notifyListeners();
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(_themeKey, colorId);
+      await prefs.setInt(_themeKey, _currentTheme.colorId);
     } catch (e) {
-      print('テーマ保存エラー: $e');
+      debugPrint('テーマ保存エラー: $e');
     }
   }
 
@@ -86,17 +103,16 @@ class ThemeProvider extends ChangeNotifier {
     const primaryColor = Colors.blue;
     const backgroundColor = Colors.white;
     const surfaceColor = Color(0xFFF5F5F5);
-    
+
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
       colorScheme: ColorScheme.fromSeed(
         seedColor: primaryColor,
         brightness: Brightness.light,
-        background: backgroundColor,
         surface: surfaceColor,
       ),
-      
+
       // AppBar テーマ
       appBarTheme: const AppBarTheme(
         backgroundColor: backgroundColor,
@@ -110,10 +126,10 @@ class ThemeProvider extends ChangeNotifier {
         ),
         iconTheme: IconThemeData(color: Colors.black87),
       ),
-      
+
       // Scaffold テーマ
       scaffoldBackgroundColor: backgroundColor,
-      
+
       // BottomNavigationBar テーマ
       bottomNavigationBarTheme: BottomNavigationBarThemeData(
         backgroundColor: backgroundColor,
@@ -122,7 +138,7 @@ class ThemeProvider extends ChangeNotifier {
         type: BottomNavigationBarType.fixed,
         elevation: 8,
       ),
-      
+
       // Card テーマ
       cardTheme: CardThemeData(
         color: surfaceColor,
@@ -131,12 +147,12 @@ class ThemeProvider extends ChangeNotifier {
           borderRadius: BorderRadius.circular(8),
         ),
       ),
-      
+
       // ListTile テーマ
       listTileTheme: const ListTileThemeData(
         contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       ),
-      
+
       // Text テーマ
       textTheme: const TextTheme(
         headlineLarge: TextStyle(color: Colors.black87),
@@ -154,17 +170,16 @@ class ThemeProvider extends ChangeNotifier {
     const primaryColor = Colors.blue;
     const backgroundColor = Color(0xFF121212);
     const surfaceColor = Color(0xFF1E1E1E);
-    
+
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
       colorScheme: ColorScheme.fromSeed(
         seedColor: primaryColor,
         brightness: Brightness.dark,
-        background: backgroundColor,
         surface: surfaceColor,
       ),
-      
+
       // AppBar テーマ
       appBarTheme: const AppBarTheme(
         backgroundColor: surfaceColor,
@@ -178,10 +193,10 @@ class ThemeProvider extends ChangeNotifier {
         ),
         iconTheme: IconThemeData(color: Colors.white),
       ),
-      
+
       // Scaffold テーマ
       scaffoldBackgroundColor: backgroundColor,
-      
+
       // BottomNavigationBar テーマ
       bottomNavigationBarTheme: BottomNavigationBarThemeData(
         backgroundColor: surfaceColor,
@@ -190,7 +205,7 @@ class ThemeProvider extends ChangeNotifier {
         type: BottomNavigationBarType.fixed,
         elevation: 8,
       ),
-      
+
       // Card テーマ
       cardTheme: CardThemeData(
         color: surfaceColor,
@@ -199,14 +214,14 @@ class ThemeProvider extends ChangeNotifier {
           borderRadius: BorderRadius.circular(8),
         ),
       ),
-      
+
       // ListTile テーマ
       listTileTheme: const ListTileThemeData(
         contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         textColor: Colors.white,
         iconColor: Colors.white70,
       ),
-      
+
       // Text テーマ
       textTheme: const TextTheme(
         headlineLarge: TextStyle(color: Colors.white),

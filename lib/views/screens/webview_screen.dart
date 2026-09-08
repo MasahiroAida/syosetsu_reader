@@ -3,12 +3,12 @@ import 'package:provider/provider.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:webview_flutter/webview_flutter.dart';
-import 'package:flutter/foundation.dart';
 import '../../viewmodels/webview_viewmodel.dart';
 import '../../models/reading_history.dart';
 import '../../models/bookmark.dart';
 import '../../providers/theme_provider.dart';
 import '../../utils/theme_helper.dart';
+import '../../utils/novel_url.dart';
 
 class WebViewScreen extends StatefulWidget {
   final String novelId;
@@ -26,12 +26,31 @@ class WebViewScreen extends StatefulWidget {
   State<WebViewScreen> createState() => _WebViewScreenState();
 }
 
-class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserver {
+class _WebViewScreenState extends State<WebViewScreen>
+    with WidgetsBindingObserver {
   late final WebViewController _controller;
   late WebViewViewModel _viewModel;
   bool _hasScrolledToTitle = false;
   int _currentChapter = 0;
-  double _scrollPosition = 180.0;
+  double _scrollPosition = 0.0;
+  int _pageGeneration = 0;
+  Future<void>? _pageDetailsFuture;
+  String? _restoreTargetUrl;
+  ThemeProvider? _themeProvider;
+  bool _allowPop = false;
+  bool _isClosing = false;
+  Future<void>? _positionSaveFuture;
+  bool _hasKnownScrollPosition = false;
+  final Map<String, double> _sessionScrollPositions = {};
+
+  String _positionKey(NovelUrl page) =>
+      '${page.isR18}:${page.ncode}:${page.chapter}';
+
+  NovelUrl? get _currentNovelPage =>
+      _currentUrl == null ? null : NovelUrl.parse(_currentUrl!);
+
+  bool _isCurrentPage(int generation) =>
+      mounted && generation == _pageGeneration;
   String? _currentUrl;
 
   // 現在読み込んでいるページで onPageFinished が発火済みかどうかを管理
@@ -41,15 +60,25 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
 
   // WebViewの初期化状態を管理する変数を追加
   bool _isWebViewInitialized = false;
-  bool _isWebViewDisplayed = false; // WebViewが表示されたタイミングを追跡
 
   bool _isJavaScriptReady = false; // JavaScript実行可能性
   Timer? _initializationTimer; // 初期化確認タイマー
   int _initializationAttempts = 0; // 初期化試行回数
   static const int maxInitializationAttempts = 5; // 最大試行回数
 
-  // ページ読み込み開始時刻を記録し、読み込み完了までの時間を計測する
-  DateTime? _pageLoadStartTime;
+  bool _shouldRestoreScrollPosition = false;
+  bool _scrollRestoreCompleted = false;
+  final List<Timer> _scrollRestoreTimers = [];
+  static const List<int> _scrollRestoreDelaysMs = [
+    0,
+    50,
+    150,
+    300,
+    600,
+    1000,
+    1500
+  ];
+  bool _userInteracted = false;
 
   // 小説の種類を判定するフィールドを追加
   bool _isSerialNovel = false; // 連載小説かどうか
@@ -58,8 +87,6 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   // 表示設定
   double _fontSize = 16.0; // フォントサイズをスライダーで調整するための状態
 
-  bool _isAppInBackground = false;
-  
   @override
   void initState() {
     super.initState();
@@ -71,30 +98,28 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
       _useNovel18Domain = true;
     }
     _loadFromHistory();
-    
+
     // テーマ変更を監視してWebViewのテーマを同期
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _listenToThemeChanges();
+      if (mounted) _listenToThemeChanges();
     });
 
     // 定期的な初期化状態チェックを開始
     _startInitializationCheck();
   }
-  
+
   // アプリのライフサイクル変化を監視
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    
+
     switch (state) {
       case AppLifecycleState.paused:
       case AppLifecycleState.inactive:
         // アプリがバックグラウンドに移行する時に保存
-        _isAppInBackground = true;
         _savePositionOnExit();
         break;
       case AppLifecycleState.resumed:
-        _isAppInBackground = false;
         break;
       case AppLifecycleState.detached:
         // アプリが完全に終了する時も保存
@@ -105,87 +130,32 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     }
   }
 
-  bool _isSerialNovelFromUrl(String url) {
-    final serialRegex =
-        RegExp(r'https://(?:ncode|novel18)\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
-    return serialRegex.hasMatch(url);
-  }
+  bool _isSerialNovelFromUrl(String url) =>
+      (NovelUrl.parse(url)?.chapter ?? 0) > 0;
 
   /// 適切なURLを構築
   String _buildNovelUrl(int chapter) {
     final domain = _useNovel18Domain ? 'novel18' : 'ncode';
-    final baseUrl = 'https://$domain.syosetu.com/${widget.novelId.toLowerCase()}/';
-    
-    if (_isSerialNovel && chapter > 0) {
+    final novelId = _currentNovelPage?.ncode ?? widget.novelId.toLowerCase();
+    final baseUrl = 'https://$domain.syosetu.com/$novelId/';
+
+    if (chapter > 0) {
       return '$baseUrl$chapter/';
     } else {
       return baseUrl; // 目次または短編の場合
     }
   }
 
-  /// 現在のURLから章番号を抽出し、`_currentChapter`も更新する
-  int _extractChapterFromUrl(String url) {
-    if (!_isSerialNovel) {
-      print('目次/短編小説のURLを検出: $url');
-      _currentChapter = 0; // 目次/短編の場合は章番号なし
-      return 0;
-    }
-
-    final regex =
-        RegExp(r'https://(?:ncode|novel18)\.syosetu\.com/([^/]+)/([0-9]+)/?.*');
-    final match = regex.firstMatch(url);
-
-    if (match != null) {
-      print('連載小説のURLを検出: $url');
-      final chapter = int.tryParse(match.group(2)!) ?? 0;
-      _currentChapter = chapter;
-      return chapter;
-    }
-
-    _currentChapter = 0;
-    return 0;
-  }
-
-  /// URLから小説詳細情報を取得し、小説の種類を判定
   Future<void> _fetchNovelDetailsAndUpdateType(String url) async {
-    try {
-      print('小説詳細情報を取得中...: $url');
-
-      // URLが小説ページかどうか確認
-      final ncode = _viewModel.extractNcodeFromUrl(url);
-      if (ncode == null) {
-        print('小説URLではないため詳細取得を中止します: $url');
-        _novelDetails = null;
-        return;
-      }
-
-      // API から小説詳細情報を取得
-      final novelDetails = await _viewModel.fetchNovelDetailsFromUrl(url);
-      if (novelDetails != null) {
-        _novelDetails = novelDetails;
-        
-        // APIから小説の種類を判定
-        _isSerialNovel = _viewModel.isSerialNovel(novelDetails);
-        
-        print('小説詳細取得完了:');
-        print('  タイトル: ${_viewModel.getNovelTitle(novelDetails)}');
-        print('  作者: ${_viewModel.getNovelAuthor(novelDetails)}');
-        print('  種類: ${_isSerialNovel ? "連載" : "短編"}');
-        print('  総話数: ${_viewModel.getTotalChapters(novelDetails)}');
-        print('  ジャンル: ${_viewModel.getNovelGenre(novelDetails)}');
-        
-        // UIを更新
-        setState(() {});
-      } else {
-        print('小説詳細情報の取得に失敗しました');
-        // フォールバック: URLから小説の種類を判定
-        _isSerialNovel = _isSerialNovelFromUrl(url);
-      }
-    } catch (e) {
-      print('小説詳細情報取得エラー: $e');
-      // フォールバック: URLから小説の種類を判定
-      _isSerialNovel = _isSerialNovelFromUrl(url);
-    }
+    final generation = _pageGeneration;
+    final details = await _viewModel.fetchNovelDetailsFromUrl(url);
+    if (!_isCurrentPage(generation)) return;
+    setState(() {
+      _novelDetails = details;
+      _isSerialNovel = details != null
+          ? _viewModel.isSerialNovel(details)
+          : _isSerialNovelFromUrl(url);
+    });
   }
 
   void _initializeWebView() {
@@ -197,97 +167,125 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
           onProgress: (int progress) {
             // ページ読み込み進捗をログに出力
             // 0-100 の範囲で進捗が通知される
-            print('ページ読み込み進捗: $progress%');
+            debugPrint('ページ読み込み進捗: $progress%');
           },
-          onPageStarted: (String url) async {
+          onPageStarted: (String url) {
+            if (!mounted) return;
+            _pageGeneration++;
+            _currentUrl = url;
+            final page = NovelUrl.parse(url);
+            _currentChapter = page?.chapter ?? 0;
+            _useNovel18Domain = page?.isR18 ?? false;
+            _novelDetails = null;
+            _isSerialNovel = (page?.chapter ?? 0) > 0;
+            _viewModel.checkBookmarkStatus(page?.ncode ?? '');
             _viewModel.updateLoadingState(true);
             _hasScrolledToTitle = false;
-            _currentUrl = url;
-            _useNovel18Domain = url.contains('novel18.syosetu.com');
-            _pageLoadStartTime = DateTime.now();
             _pageLoadCompleted = false;
-            print('ページ読み込み開始: $url at $_pageLoadStartTime');
-
-            // 定期保存を停止
+            _hasKnownScrollPosition = false;
+            _lastSavedScrollPosition = 0;
+            final sessionPosition = page == null
+                ? null
+                : _sessionScrollPositions[_positionKey(page)];
+            if (sessionPosition != null) {
+              _scrollPosition = sessionPosition;
+              _restoreTargetUrl = url;
+            }
+            _shouldRestoreScrollPosition = _restoreTargetUrl != null &&
+                NovelUrl.matches(url, _restoreTargetUrl!);
+            if (!_shouldRestoreScrollPosition) {
+              _restoreTargetUrl = null;
+              _scrollPosition = 0;
+            }
             _stopPeriodicScrollSave();
-
-            // 初期化状態をリセット
             _isJavaScriptReady = false;
+            _isWebViewInitialized = false;
             _initializationAttempts = 0;
             _initializationTimer?.cancel();
-
-            _extractChapterFromUrl(url);
-            
-            // 新しいURLに対して小説詳細情報を取得
-            await _fetchNovelDetailsAndUpdateType(url);
-            
-            if (!_isWebViewDisplayed) {
-              _isWebViewDisplayed = true;
-              _scheduleInitialScroll();
-            }
+            _resetScrollRestoreState();
+            _resetUserInteractionState();
+            _pageDetailsFuture = _fetchNovelDetailsAndUpdateType(url);
+            if (_shouldRestoreScrollPosition) _scheduleInitialScroll();
           },
           onPageFinished: (String url) async {
-            print('ページ読み込み完了: $url');
+            debugPrint('ページ読み込み完了: $url');
             await _handlePageFinished(url);
           },
           onWebResourceError: (WebResourceError error) {
-            print('WebView リソースエラー: ${error.description}');
+            debugPrint('WebView リソースエラー: ${error.description}');
 
-            if (!error.description.contains('ERR_BLOCKED_BY_ORB')) {
+            if (mounted &&
+                error.isForMainFrame != false &&
+                !error.description.contains('ERR_BLOCKED_BY_ORB')) {
+              _viewModel.updateLoadingState(false);
               _isWebViewInitialized = false;
               _isJavaScriptReady = false;
               _stopPeriodicScrollSave();
             }
           },
-          onNavigationRequest: (NavigationRequest request) {
-            print('ナビゲーションリクエスト: ${request.url}');
-            
+          onNavigationRequest: (NavigationRequest request) async {
+            debugPrint('ナビゲーションリクエスト: ${request.url}');
+
             // ページ遷移前に現在の位置を保存
-            if (isWebViewReady) {
-              _savePositionOnExit();
+            if (request.isMainFrame && isWebViewReady) {
+              await _savePositionOnExit();
             }
-            
-            return NavigationDecision.navigate;
+            return mounted
+                ? NavigationDecision.navigate
+                : NavigationDecision.prevent;
           },
         ),
       );
 
     _controller.setOnConsoleMessage((JavaScriptConsoleMessage message) {
-      print('WebView Console [${message.level.name}]: ${message.message}');
+      debugPrint('WebView Console [${message.level.name}]: ${message.message}');
     });
   }
 
   /// 小説URLの場合に閲覧履歴に自動登録・更新
   Future<void> _autoAddToHistory(String url) async {
+    final generation = _pageGeneration;
     try {
       // なろうの小説URLかどうかチェック
       final ncode = _viewModel.extractNcodeFromUrl(url);
       if (ncode == null) {
-        print('小説URLではないため履歴登録をスキップ: $url');
+        debugPrint('小説URLではないため履歴登録をスキップ: $url');
         return;
       }
-      
-      print('小説URLを検出、履歴に自動登録: $url');
-      
+
+      debugPrint('小説URLを検出、履歴に自動登録: $url');
+
       // 現在のスクロール位置を取得（初回の場合は0）
       double currentScrollPosition = 0.0;
       try {
-        currentScrollPosition = await _getCurrentScrollPosition();
+        currentScrollPosition = await _getCurrentScrollPositionWithTimeout();
       } catch (e) {
-        print('スクロール位置取得失敗、0で設定: $e');
+        debugPrint('スクロール位置取得失敗、0で設定: $e');
       }
-      
+
+      final existingHistory = await _viewModel.getHistoryItem(ncode);
+      if (!_isCurrentPage(generation)) return;
+      if (_shouldRestoreScrollPosition && !_scrollRestoreCompleted) {
+        await _refreshUserInteractionFlag();
+        if (!_isCurrentPage(generation)) return;
+      }
+      if (_shouldRestoreScrollPosition && !_scrollRestoreCompleted) {
+        currentScrollPosition = _scrollPosition;
+      }
+
       // API情報を使用してより正確な履歴を作成
-      final actualTitle = _novelDetails != null 
-          ? _viewModel.getNovelTitle(_novelDetails!) 
-          : widget.title;
-      final actualAuthor = _novelDetails != null 
-          ? _viewModel.getNovelAuthor(_novelDetails!) 
-          : 'Unknown';
-      final totalChapters = _novelDetails != null 
-          ? _viewModel.getTotalChapters(_novelDetails!) 
-          : (_isSerialNovel ? 100 : 1);
-      
+      final actualTitle = _novelDetails != null
+          ? _viewModel.getNovelTitle(_novelDetails!)
+          : (existingHistory?.novelTitle ??
+              (ncode == widget.novelId.toLowerCase() ? widget.title : ncode));
+      final actualAuthor = _novelDetails != null
+          ? _viewModel.getNovelAuthor(_novelDetails!)
+          : (existingHistory?.author ?? 'Unknown');
+      final totalChapters = _novelDetails != null
+          ? _viewModel.getTotalChapters(_novelDetails!)
+          : (existingHistory?.totalChapters ??
+              (_currentChapter > 0 ? _currentChapter : 1));
+
       final history = ReadingHistory(
         id: ncode,
         novelId: ncode,
@@ -298,13 +296,23 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
         lastViewed: DateTime.now(),
         url: url,
         scrollPosition: currentScrollPosition,
-        isSerialNovel: _isSerialNovel,
+        isSerialNovel: _novelDetails != null
+            ? _isSerialNovel
+            : (existingHistory?.isSerialNovel ?? _isSerialNovel),
+        lastUpdate: _viewModel.getLastUpdate(_novelDetails) ??
+            existingHistory?.lastUpdate,
       );
-      
+
       await _viewModel.addToHistory(history, novelData: _novelDetails);
-      print('閲覧履歴に自動登録完了: $ncode (第$_currentChapter章)');
+      if (!_isCurrentPage(generation)) return;
+      await _viewModel.updateBookmarkPosition(
+        ncode,
+        history.currentChapter,
+        history.scrollPosition ?? 0,
+      );
+      debugPrint('閲覧履歴に自動登録完了: $ncode (第$_currentChapter章)');
     } catch (e) {
-      print('閲覧履歴自動登録エラー: $e');
+      debugPrint('閲覧履歴自動登録エラー: $e');
     }
   }
 
@@ -313,26 +321,9 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   double _lastSavedScrollPosition = 0.0;
 
   void _startPeriodicScrollSave() {
-    // 30秒ごとにスクロール位置を保存
-    _scrollSaveTimer = Timer.periodic(const Duration(seconds: 30), (timer) async {
-      if (!mounted || !isWebViewReady) return;
-      
-      try {
-        final currentScroll = await _getCurrentScrollPosition();
-        
-        // 前回保存した位置から50px以上変化があった場合のみ保存
-        if ((currentScroll - _lastSavedScrollPosition).abs() > 50) {
-          await _viewModel.updateReadingPosition(
-            widget.novelId, 
-            _currentChapter, 
-            currentScroll
-          );
-          _lastSavedScrollPosition = currentScroll;
-          print('定期保存実行: scroll=$currentScroll');
-        }
-      } catch (e) {
-        print('定期保存エラー: $e');
-      }
+    _stopPeriodicScrollSave();
+    _scrollSaveTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted && isWebViewReady) _savePositionOnExit();
     });
   }
 
@@ -343,87 +334,222 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
 
   /// WebView表示直後のスクロール処理をスケジュール
   void _scheduleInitialScroll() {
-    // 複数のタイミングでスクロールを試行
-    _attemptScrollToPosition(0);   // 0.01秒後
+    if (_scrollPosition < 0 || !_shouldRestoreScrollPosition) return;
+    final generation = _pageGeneration;
+    _cancelScrollRestoreTimers();
+    for (final delayMs in _scrollRestoreDelaysMs) {
+      _scrollRestoreTimers.add(
+        Timer(Duration(milliseconds: delayMs), () async {
+          if (!_isCurrentPage(generation) || _scrollRestoreCompleted) return;
+          await _injectUserInteractionListener();
+          if (!_isCurrentPage(generation) ||
+              await _refreshUserInteractionFlag()) {
+            return;
+          }
+          if (!_isCurrentPage(generation)) return;
+          final restored = await _tryRestoreScrollPosition('initial/$delayMs');
+          if (_isCurrentPage(generation) && restored) {
+            _markScrollRestoreCompleted();
+          }
+        }),
+      );
+    }
   }
 
-  /// 指定したディレイ後にスクロール位置への移動を試行
-  void _attemptScrollToPosition(int delayMs) {
-    Timer(Duration(milliseconds: delayMs), () async {
-      if (_scrollPosition > 0 && mounted) {
+  void _resetScrollRestoreState() {
+    _scrollRestoreCompleted = false;
+    _cancelScrollRestoreTimers();
+  }
+
+  void _cancelScrollRestoreTimers() {
+    for (final timer in _scrollRestoreTimers) {
+      timer.cancel();
+    }
+    _scrollRestoreTimers.clear();
+  }
+
+  void _markScrollRestoreCompleted() {
+    if (_scrollRestoreCompleted) return;
+    _scrollRestoreCompleted = true;
+    _restoreTargetUrl = null;
+    _cancelScrollRestoreTimers();
+  }
+
+  Future<bool> _tryRestoreScrollPosition(String reason) async {
+    final generation = _pageGeneration;
+    if (_scrollPosition < 0 || !_scrollPosition.isFinite) return false;
+    if (await _refreshUserInteractionFlag()) return false;
+    if (!_isCurrentPage(generation)) return false;
+
+    final expectedUri = Uri.tryParse(_currentUrl ?? '');
+    if (expectedUri == null) return false;
+    final scrollScript = '''
+      (function() {
         try {
-          await _scrollToPosition(_scrollPosition);
-          print('スクロール試行 (${delayMs}ms後): position=$_scrollPosition');
+          if (window.location.host !== ${jsonEncode(expectedUri.host)} ||
+              window.location.pathname !== ${jsonEncode(expectedUri.path)}) return '{}';
+          if (typeof document === 'undefined' || typeof window === 'undefined') {
+            return JSON.stringify({ ready: false, height: 0, scrolled: false, y: 0 });
+          }
+          const ready = document.readyState !== 'loading';
+          const body = document.body;
+          const docEl = document.documentElement;
+          const height = Math.max(
+            body ? body.scrollHeight : 0,
+            docEl ? docEl.scrollHeight : 0
+          );
+          if (!ready || height <= 0) {
+            return JSON.stringify({ ready: ready, height: height, scrolled: false, y: 0 });
+          }
+          const target = Math.max(0, $_scrollPosition);
+          const viewport = window.innerHeight || 0;
+          const maxScroll = Math.max(0, height - viewport);
+          const clamped = Math.min(target, maxScroll);
+          window.__syosetsuAutoScrollUntil = Date.now() + 300;
+          window.scrollTo(0, clamped);
+          const y = window.pageYOffset || (docEl ? docEl.scrollTop : 0) || (body ? body.scrollTop : 0) || 0;
+          const fullTargetAvailable = target <= maxScroll + 2 || document.readyState === 'complete';
+          const success = fullTargetAvailable && Math.abs(y - clamped) <= 2;
+          return JSON.stringify({ ready: true, height: height, scrolled: success, y: y });
         } catch (e) {
-          print('スクロール試行失敗 (${delayMs}ms後): $e');
+          return JSON.stringify({ ready: false, height: 0, scrolled: false, y: 0 });
         }
+      })();
+    ''';
+
+    try {
+      final result =
+          await _controller.runJavaScriptReturningResult(scrollScript);
+      if (!_isCurrentPage(generation)) return false;
+      final parsed = _decodeJsonResult(result);
+      final scrolled = parsed['scrolled'] == true;
+      final height = parsed['height'];
+      final y = parsed['y'];
+      debugPrint(
+          'スクロール復元試行($reason): scrolled=$scrolled height=$height y=$y target=$_scrollPosition');
+      return scrolled;
+    } catch (e) {
+      debugPrint('スクロール復元試行失敗($reason): $e');
+      return false;
+    }
+  }
+
+  Map<String, dynamic> _decodeJsonResult(Object? result) {
+    if (result == null) return <String, dynamic>{};
+    try {
+      final raw = result.toString();
+      if (raw.isEmpty) return <String, dynamic>{};
+      final decoded = jsonDecode(raw);
+      if (decoded is String) {
+        final nested = jsonDecode(decoded);
+        return nested is Map<String, dynamic> ? nested : <String, dynamic>{};
       }
-    });
+      return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+
+  void _resetUserInteractionState() {
+    _userInteracted = false;
+  }
+
+  void _handleUserInteractionDetected() {
+    if (_userInteracted) return;
+    _userInteracted = true;
+    _markScrollRestoreCompleted();
+    _hasScrolledToTitle = true;
+  }
+
+  Future<bool> _refreshUserInteractionFlag() async {
+    final generation = _pageGeneration;
+    if (_userInteracted) return true;
+    const checkScript = '''
+      (function() {
+        try {
+          return window.__syosetsuUserInteracted === true;
+        } catch (e) {
+          return false;
+        }
+      })();
+    ''';
+
+    try {
+      final result =
+          await _controller.runJavaScriptReturningResult(checkScript);
+      if (!_isCurrentPage(generation)) return true;
+      final interacted = result.toString() == 'true';
+      if (interacted) {
+        _handleUserInteractionDetected();
+      }
+      return interacted;
+    } catch (e) {
+      return _userInteracted;
+    }
+  }
+
+  Future<void> _injectUserInteractionListener() async {
+    const injectScript = '''
+      (function() {
+        try {
+          if (window.__syosetsuUserInteractionListenerInstalled) return true;
+          window.__syosetsuUserInteractionListenerInstalled = true;
+          window.__syosetsuUserInteracted = false;
+          window.__syosetsuAutoScrollUntil = 0;
+          const mark = function() {
+            try {
+              if (Date.now() < (window.__syosetsuAutoScrollUntil || 0)) return;
+              window.__syosetsuUserInteracted = true;
+            } catch (e) {}
+          };
+          window.addEventListener('scroll', mark, { passive: true });
+          window.addEventListener('touchstart', mark, { passive: true });
+          window.addEventListener('wheel', mark, { passive: true });
+          window.addEventListener('mousedown', mark, { passive: true });
+          window.addEventListener('keydown', mark, { passive: true });
+          return true;
+        } catch (e) {
+          return false;
+        }
+      })();
+    ''';
+
+    try {
+      await _controller.runJavaScript(injectScript);
+    } catch (e) {
+      debugPrint('ユーザー操作検知の注入に失敗: $e');
+    }
   }
 
   Future<void> _loadFromHistory() async {
     final history = await _viewModel.getHistoryItem(widget.novelId);
-    if (history != null) {
-      _currentChapter = history.currentChapter;
-      _scrollPosition = history.scrollPosition ?? 0.0;
-
-      if (history.url.isNotEmpty) {
-        _isSerialNovel = _isSerialNovelFromUrl(history.url);
-        _useNovel18Domain = history.url.contains('novel18.syosetu.com');
-      }
-
-      final targetUrl = widget.url ?? history.url;
-      _controller.loadRequest(Uri.parse(targetUrl));
-    } else {
-      // 履歴がない場合は初期URLを読み込み
-      final targetUrl = widget.url ?? _buildNovelUrl(0);
-      _controller.loadRequest(Uri.parse(targetUrl));
+    if (!mounted) return;
+    final targetUrl = widget.url ??
+        (history != null && history.url.isNotEmpty
+            ? history.url
+            : _buildNovelUrl(0));
+    final page = NovelUrl.parse(targetUrl);
+    _currentChapter = page?.chapter ?? 0;
+    _isSerialNovel = history?.isSerialNovel ?? (page?.chapter ?? 0) > 0;
+    _useNovel18Domain = page?.isR18 ?? false;
+    final savedPosition = history?.scrollPosition;
+    if (history != null &&
+        savedPosition != null &&
+        savedPosition.isFinite &&
+        savedPosition >= 0 &&
+        NovelUrl.matches(targetUrl, history.url) &&
+        page?.chapter == history.currentChapter) {
+      _scrollPosition = savedPosition;
+      _restoreTargetUrl = targetUrl;
     }
-  }
-
-  Future<void> _updateChapterFromUrl(String url) async {
-    // 小説種別はAPIから取得した情報を使用
-    if (_isSerialNovel) {
-      // 連載小説の場合：章番号を抽出
-      final previousChapter = _currentChapter;
-      final chapterFromUrl = _extractChapterFromUrl(url);
-
-      if (chapterFromUrl > 0 && chapterFromUrl != previousChapter) {
-        print('連載小説 - チャプター更新: $previousChapter -> $chapterFromUrl');
-        await _updateReadingProgress();
-      }
-    } else {
-      // 目次/短編の場合：章番号は0に設定
-      if (_currentChapter != 0) {
-        print('目次/短編小説 - チャプターを0に設定');
-        _currentChapter = 0;
-        await _updateReadingProgress();
-      }
-    }
-  }
-
-  /// 読書進捗（チャプター）を更新
-  Future<void> _updateReadingProgress() async {
-    try {
-      // 読書履歴のチャプターを更新
-      await _viewModel.updateReadingChapter(widget.novelId, _currentChapter);
-      
-      // ブックマーク済みの場合はブックマークのチャプターも更新
-      if (_viewModel.isBookmarked) {
-        await _viewModel.updateBookmarkChapter(widget.novelId, _currentChapter);
-        print('ブックマークのチャプターを更新: $_currentChapter');
-      }
-      
-      print('読書進捗を更新: チャプター $_currentChapter');
-    } catch (e) {
-      print('読書進捗更新エラー: $e');
-    }
+    await _controller.loadRequest(Uri.parse(targetUrl));
   }
 
   Future<void> _scrollToTitle() async {
     const scrollScript = '''
       (function() {
         try {
+          window.__syosetsuAutoScrollUntil = Date.now() + 800;
           const titleElement = document.querySelector('.p-novel__title.p-novel__title--rensai') || 
                               document.querySelector('.p-novel__title') ||
                               document.querySelector('h1') ||
@@ -462,34 +588,8 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     }
   }
 
-  Future<void> _scrollToPosition(double position) async {
-    if (position <= 0) return; // 無効な位置の場合は何もしない
-    
-    final scrollScript = '''
-      (function() {
-        try {
-          if (typeof window !== 'undefined' && window.scrollTo) {
-            // 即座にスクロール（behaviorなし）
-            window.scrollTo(0, $position);
-            console.log('スクロール実行: ' + $position);
-            return true;
-          }
-          return false;
-        } catch (e) {
-          console.log('スクロール位置設定エラー:', e);
-          return false;
-        }
-      })();
-    ''';
-
-    try {
-      await _controller.runJavaScript(scrollScript);
-    } catch (e) {
-      debugPrint('Error scrolling to position: $e');
-    }
-  }
-
   Future<double> _getCurrentScrollPosition() async {
+    final generation = _pageGeneration;
     // より安全なスクロール位置取得JavaScript
     const scrollScript = '''
       (function() {
@@ -520,13 +620,24 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     ''';
 
     try {
-      final result = await _controller.runJavaScriptReturningResult(scrollScript);
-      final scrollPosition = double.tryParse(result.toString()) ?? 0.0;
-      print('取得したスクロール位置: $scrollPosition');
+      final result =
+          await _controller.runJavaScriptReturningResult(scrollScript);
+      final scrollPosition = double.tryParse(result.toString());
+      if (scrollPosition == null ||
+          !scrollPosition.isFinite ||
+          scrollPosition < 0) {
+        return _lastSavedScrollPosition;
+      }
+      if (_isCurrentPage(generation)) {
+        _lastSavedScrollPosition = scrollPosition;
+        _hasKnownScrollPosition = true;
+      }
       return scrollPosition;
     } catch (e) {
       debugPrint('Error getting scroll position: $e');
-      return 0.0;
+      return _hasKnownScrollPosition
+          ? _lastSavedScrollPosition
+          : _scrollPosition;
     }
   }
 
@@ -534,170 +645,89 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     try {
       final canGoBack = await _controller.canGoBack();
       final canGoForward = await _controller.canGoForward();
-      _viewModel.updateNavigationState(canGoBack, canGoForward);
+      if (mounted) _viewModel.updateNavigationState(canGoBack, canGoForward);
     } catch (e) {
-      print('ナビゲーション状態更新エラー: $e');
+      debugPrint('ナビゲーション状態更新エラー: $e');
     }
   }
 
   /// ページの読み込み完了時の共通処理
   Future<void> _handlePageFinished(String url) async {
-    if (_pageLoadCompleted) return;
+    if (!mounted || url != _currentUrl || _pageLoadCompleted) return;
+    final generation = _pageGeneration;
     _pageLoadCompleted = true;
-
-    final loadTime =
-        DateTime.now().difference(_pageLoadStartTime ?? DateTime.now());
-    print("ページ読み込み完了: $url (${loadTime.inMilliseconds}ms)");
+    _isWebViewInitialized = true;
     _viewModel.updateLoadingState(false);
-
-    if (!_isWebViewInitialized) {
-      _isWebViewInitialized = true;
-      print('WebView基本初期化完了');
-    }
-
     await _testJavaScriptExecution();
-
+    if (!_isCurrentPage(generation)) return;
+    await _injectUserInteractionListener();
+    if (!_isCurrentPage(generation)) return;
     if (_isJavaScriptReady) {
       _startPeriodicScrollSave();
     } else {
       _startInitializationCheck();
     }
-
     await _updateNavigationState();
+    if (!_isCurrentPage(generation)) return;
 
-    //if (kDebugMode && mounted) {
-    //  ScaffoldMessenger.of(context).showSnackBar(
-    //    SnackBar(
-    //      content: Text(_isJavaScriptReady
-    //          ? 'WebViewの読み込みが完了しました'
-    //          : 'WebViewの読み込み中です...'),
-    //      duration: const Duration(seconds: 1),
-    //    ),
-    //  );
-    //}
-
-    try {
-      await _updateChapterFromUrl(url);
-
-      // 小説URLの場合は閲覧履歴に自動登録・更新
-      await _autoAddToHistory(url);
-
-      // JavaScript環境が準備完了してからスクロール操作を実行
-      if (!_hasScrolledToTitle) {
-        if (_isJavaScriptReady) {
-          await _scrollToTitle();
-          _hasScrolledToTitle = true;
-        } else {
-          // JavaScript環境が未準備の場合は少し待ってから再試行
-          Timer(const Duration(milliseconds: 1000), () async {
-            if (mounted && !_hasScrolledToTitle) {
-              await _testJavaScriptExecution();
-              if (_isJavaScriptReady) {
-                await _scrollToTitle();
-                _hasScrolledToTitle = true;
-              }
-            }
-          });
-        }
+    if (_shouldRestoreScrollPosition) {
+      if (!_scrollRestoreCompleted) {
+        final restored = await _tryRestoreScrollPosition('pageFinished');
+        if (!_isCurrentPage(generation)) return;
+        if (restored) _markScrollRestoreCompleted();
       }
-    } catch (e) {
-      print('ページ処理エラー: $e');
+      _hasScrolledToTitle = true;
+    } else if (!_hasScrolledToTitle && _currentNovelPage != null) {
+      final userInteracted = await _refreshUserInteractionFlag();
+      if (!_isCurrentPage(generation)) return;
+      if (!userInteracted && _isJavaScriptReady) await _scrollToTitle();
+      if (!_isCurrentPage(generation)) return;
+      _hasScrolledToTitle = true;
     }
+
+    // Saving before restoration would replace the persisted offset with zero.
+    await _autoAddToHistory(url);
+    if (!_isCurrentPage(generation)) return;
+    await _pageDetailsFuture;
+    if (!_isCurrentPage(generation)) return;
+    if (_novelDetails != null) await _autoAddToHistory(url);
   }
 
   Future<void> _addToHistory() async {
-    final currentScrollPosition = await _getCurrentScrollPosition();
-    
-    // 適切なURLを構築
-    final currentUrl = _currentUrl ?? _buildNovelUrl(_currentChapter);
-    
-    // ncodeを抽出（URLから）
-    final ncode = _viewModel.extractNcodeFromUrl(currentUrl) ?? widget.novelId;
-    
-    // API情報を使用してより正確な履歴を作成
-    final actualTitle = _novelDetails != null 
-        ? _viewModel.getNovelTitle(_novelDetails!) 
-        : widget.title;
-    final actualAuthor = _novelDetails != null 
-        ? _viewModel.getNovelAuthor(_novelDetails!) 
-        : 'Unknown';
-    final totalChapters = _novelDetails != null 
-        ? _viewModel.getTotalChapters(_novelDetails!) 
-        : (_isSerialNovel ? 100 : 1);
-    
-    final history = ReadingHistory(
-      id: ncode,
-      novelId: ncode,
-      novelTitle: actualTitle,
-      author: actualAuthor,
-      currentChapter: _currentChapter,
-      totalChapters: totalChapters,
-      lastViewed: DateTime.now(),
-      url: currentUrl,
-      scrollPosition: currentScrollPosition,
-      isSerialNovel: _isSerialNovel,
-    );
-    
-    await _viewModel.addToHistory(history, novelData: _novelDetails);
+    final url = _currentUrl;
+    if (url != null) await _autoAddToHistory(url);
   }
 
-  /// WebView終了時の位置保存
-  Future<void> _savePositionOnExit() async {
-    // 既に保存処理中、またはWebViewが初期化されていない場合はスキップ
-    if (!mounted || !isWebViewReady) {
-      print('保存をスキップ: mounted=$mounted, isWebViewReady=$isWebViewReady');
-      return;
-    }
+  Future<void> _savePositionOnExit() {
+    return _positionSaveFuture ??= _saveCurrentPosition().whenComplete(() {
+      _positionSaveFuture = null;
+    });
+  }
 
-    try {
-      print('読書位置保存開始...');
-
-      // 現在表示中のURLから章番号を再取得
-      if (_currentUrl != null) {
-        if (_isSerialNovelFromUrl(_currentUrl!)) {
-          _extractChapterFromUrl(_currentUrl!);
-        } else {
-          _currentChapter = 0;
-        }
-      }
-
-      // タイムアウト付きでスクロール位置を取得
-      final currentScrollPosition = await _getCurrentScrollPositionWithTimeout();
-      print('取得したスクロール位置: $currentScrollPosition');
-      
-      // 最低限の履歴情報を保存（スクロール位置を優先的に保存）
-      await _saveMinimumHistory(currentScrollPosition);
-      
-      print('読書位置保存完了: chapter=$_currentChapter, scroll=$currentScrollPosition');
-    } catch (e) {
-      print('位置保存エラー: $e');
-      // エラーが発生した場合も最低限の情報は保存
-      await _saveMinimumHistoryFallback();
-    }
+  Future<void> _saveCurrentPosition() async {
+    final page = _currentNovelPage;
+    final generation = _pageGeneration;
+    if (!isWebViewReady || !_pageLoadCompleted || page == null) return;
+    await _refreshUserInteractionFlag();
+    if (!_isCurrentPage(generation)) return;
+    final position = await _getCurrentScrollPositionWithTimeout();
+    if (!_isCurrentPage(generation)) return;
+    // A pending restore owns the saved offset until it finishes or the user moves.
+    final scroll = _shouldRestoreScrollPosition && !_scrollRestoreCompleted
+        ? _scrollPosition
+        : position;
+    await _saveMinimumHistory(scroll, page: page);
   }
 
   // WebViewが初期化されているかチェックするヘルパーメソッド
-  bool get isWebViewReady => _isWebViewInitialized && _isJavaScriptReady && mounted;
-
-  // 安全にJavaScriptを実行するヘルパーメソッド
-  Future<void> _safeExecuteJavaScript(String script, {String? errorMessage}) async {
-    if (!isWebViewReady) {
-      print('WebViewが初期化されていないため、JavaScriptの実行をスキップします');
-      return;
-    }
-
-    try {
-      await _controller.runJavaScript(script);
-    } catch (e) {
-      print('${errorMessage ?? "JavaScript実行エラー"}: $e');
-    }
-  }
+  bool get isWebViewReady =>
+      _isWebViewInitialized && _isJavaScriptReady && mounted;
 
   /// 定期的な初期化状態チェック
   void _startInitializationCheck() {
     _initializationTimer?.cancel();
-    _initializationTimer =
-        Timer.periodic(const Duration(seconds: 2), (timer) => _checkInitializationStatus());
+    _initializationTimer = Timer.periodic(
+        const Duration(seconds: 2), (timer) => _checkInitializationStatus());
   }
 
   Future<void> _checkInitializationStatus() async {
@@ -712,25 +742,27 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
       await _testJavaScriptExecution();
 
       if (_isJavaScriptReady) {
-        print('WebView初期化完全完了 ($_initializationAttempts回目)');
+        debugPrint('WebView初期化完全完了 ($_initializationAttempts回目)');
         _initializationTimer?.cancel();
+        if (_pageLoadCompleted && mounted) _startPeriodicScrollSave();
       }
     } catch (e) {
-      print('初期化チェック失敗 ($_initializationAttempts回目): $e');
+      debugPrint('初期化チェック失敗 ($_initializationAttempts回目): $e');
       if (_initializationAttempts >= maxInitializationAttempts) {
-        print('最大試行回数に達したため強制再初期化を実行');
+        debugPrint('最大試行回数に達したため強制再初期化を実行');
         await _forceReinitialize();
       }
     }
   }
 
   Future<void> _testJavaScriptExecution() async {
+    final generation = _pageGeneration;
     const testScript = '''
       (function() {
         try {
           if (typeof document === 'undefined' || typeof window === 'undefined') return false;
           if (typeof window.scrollTo !== 'function') return false;
-          if (document.readyState !== 'complete') return false;
+          if (document.readyState === 'loading') return false;
           const testDiv = document.createElement('div');
           if (!testDiv) return false;
           console.log('JavaScript実行テスト: 成功');
@@ -744,22 +776,25 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
 
     try {
       final result = await _controller.runJavaScriptReturningResult(testScript);
+      if (!_isCurrentPage(generation)) return;
       _isJavaScriptReady = result.toString() == 'true';
 
       if (_isJavaScriptReady) {
-        print('JavaScript実行テスト: 成功');
+        debugPrint('JavaScript実行テスト: 成功');
       } else {
-        print('JavaScript実行テスト: 失敗 - $result');
+        debugPrint('JavaScript実行テスト: 失敗 - $result');
       }
     } catch (e) {
-      print('JavaScript実行テスト例外: $e');
-      _isJavaScriptReady = false;
+      debugPrint('JavaScript実行テスト例外: $e');
+      if (_isCurrentPage(generation)) _isJavaScriptReady = false;
     }
   }
 
   Future<void> _forceReinitialize() async {
     try {
-      print('WebView強制再初期化開始');
+      await _savePositionOnExit();
+      if (!mounted) return;
+      debugPrint('WebView強制再初期化開始');
 
       _isWebViewInitialized = false;
       _isJavaScriptReady = false;
@@ -767,9 +802,9 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
 
       await _controller.reload();
 
-      print('WebView強制再初期化完了');
+      debugPrint('WebView強制再初期化完了');
     } catch (e) {
-      print('強制再初期化エラー: $e');
+      debugPrint('強制再初期化エラー: $e');
     }
   }
 
@@ -791,7 +826,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
 
       _initializationAttempts = 0;
       await _testJavaScriptExecution();
-
+      if (!mounted) return;
       Navigator.of(context).pop();
 
       if (_isJavaScriptReady) {
@@ -805,8 +840,9 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
         _showReinitializationDialog();
       }
     } catch (e) {
+      if (!mounted) return;
       Navigator.of(context).pop();
-      print('手動初期化チェックエラー: $e');
+      debugPrint('手動初期化チェックエラー: $e');
       _showReinitializationDialog();
     }
   }
@@ -836,36 +872,37 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
 
   @override
   void dispose() {
-    print('WebViewScreen dispose開始');
-    
+    debugPrint('WebViewScreen dispose開始');
+
     // テーマ変更リスナーを削除
-    final themeProvider = ThemeHelper.of(context, listen: false);
-    if (themeProvider != null) {
-      themeProvider.removeListener(_onThemeChanged);
-    }
-    
+    _themeProvider?.removeListener(_onThemeChanged);
+
     // ライフサイクル監視を削除
     WidgetsBinding.instance.removeObserver(this);
-    
+
     // 定期保存タイマーを停止
     _stopPeriodicScrollSave();
 
     // 初期化タイマーを停止
     _initializationTimer?.cancel();
-    
+
+    // スクロール復元タイマーを停止
+    _cancelScrollRestoreTimers();
+
     // 同期的に保存処理を実行（disposeは同期的なので）
     if (isWebViewReady) {
       // WebViewが有効な間に即座に保存を試行
       _executeImmediateSave();
     }
-    
+
     // 初期化フラグをリセット
     _isWebViewInitialized = false;
-    
+    _pageGeneration++;
+    _viewModel.dispose();
     super.dispose();
-    print('WebViewScreen dispose完了');
+    debugPrint('WebViewScreen dispose完了');
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider.value(
@@ -873,35 +910,49 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
       child: Consumer<WebViewViewModel>(
         builder: (context, viewModel, child) {
           // APIから取得したタイトルがある場合はそれを使用
-          final displayTitle = _novelDetails != null 
-              ? _viewModel.getNovelTitle(_novelDetails!, fallbackTitle: widget.title)
+          final displayTitle = _novelDetails != null
+              ? _viewModel.getNovelTitle(_novelDetails!,
+                  fallbackTitle: widget.title)
               : widget.title;
-              
-          return Scaffold(
-            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-            appBar: AppBar(
-              toolbarHeight: 45,
-              title: Text(
-                displayTitle,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12.0, fontWeight: FontWeight.bold)
+
+          return PopScope(
+            canPop: _allowPop,
+            onPopInvokedWithResult: (didPop, result) async {
+              if (didPop || _isClosing) return;
+              _isClosing = true;
+              await _savePositionOnExit();
+              if (!mounted) return;
+              setState(() => _allowPop = true);
+              if (context.mounted) Navigator.of(context).pop(result);
+            },
+            child: Scaffold(
+              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+              appBar: AppBar(
+                toolbarHeight: 45,
+                title: Text(displayTitle,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 12.0, fontWeight: FontWeight.bold)),
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.refresh),
+                    onPressed: () async {
+                      await _savePositionOnExit();
+                      if (mounted) await _controller.reload();
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.more_vert),
+                    onPressed: () => _showMoreOptions(viewModel),
+                  ),
+                ],
               ),
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.refresh),
-                  onPressed: () => _controller.reload(),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.more_vert),
-                  onPressed: () => _showMoreOptions(viewModel),
-                ),
-              ],
-            ),
-            body: SafeArea(
-              child: WebViewWidget(controller: _controller),
-            ),
-            bottomNavigationBar: SafeArea(
-              child: _buildBottomNavigationBar(viewModel),
+              body: SafeArea(
+                child: WebViewWidget(controller: _controller),
+              ),
+              bottomNavigationBar: SafeArea(
+                child: _buildBottomNavigationBar(viewModel),
+              ),
             ),
           );
         },
@@ -917,7 +968,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
         color: Theme.of(context).scaffoldBackgroundColor,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: 0.1),
             blurRadius: 4,
             offset: const Offset(0, -2),
           ),
@@ -929,14 +980,20 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
           IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: viewModel.canGoBack
-                ? () => _controller.goBack()
+                ? () async {
+                    await _savePositionOnExit();
+                    if (mounted) await _controller.goBack();
+                  }
                 : null,
             tooltip: '戻る',
           ),
           IconButton(
             icon: const Icon(Icons.arrow_forward),
             onPressed: viewModel.canGoForward
-                ? () => _controller.goForward()
+                ? () async {
+                    await _savePositionOnExit();
+                    if (mounted) await _controller.goForward();
+                  }
                 : null,
             tooltip: '進む',
           ),
@@ -945,7 +1002,9 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
               viewModel.isBookmarked ? Icons.bookmark : Icons.bookmark_outline,
               color: viewModel.isBookmarked ? Colors.orange : null,
             ),
-            onPressed: () => _toggleBookmark(viewModel),
+            onPressed: _currentNovelPage == null || viewModel.isLoading
+                ? null
+                : () => _toggleBookmark(viewModel),
             tooltip: viewModel.isBookmarked ? 'ブックマーク削除' : 'ブックマーク追加',
           ),
           IconButton(
@@ -959,12 +1018,17 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   }
 
   Future<void> _toggleBookmark(WebViewViewModel viewModel) async {
+    final page = _currentNovelPage;
+    final generation = _pageGeneration;
+    if (page == null) return;
     try {
-      final currentScrollPosition = await _getCurrentScrollPosition();
-      
+      final currentScrollPosition =
+          await _getCurrentScrollPositionWithTimeout();
+      if (!_isCurrentPage(generation)) return;
+
       if (_viewModel.isBookmarked) {
         // ブックマーク削除
-        final success = await viewModel.removeBookmark(widget.novelId);
+        final success = await viewModel.removeBookmark(page.ncode);
         if (mounted && success) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -977,14 +1041,19 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
       } else {
         // ブックマーク追加
         await _addBookmarkViaWeb();
-        
-        // API情報を使用してより正確なブックマークを追加
-        final actualTitle = _novelDetails != null 
-            ? _viewModel.getNovelTitle(_novelDetails!, fallbackTitle: widget.title)
-            : widget.title;
-            
+        if (!_isCurrentPage(generation)) return;
+
+        final history = await _viewModel.getHistoryItem(page.ncode);
+        if (!_isCurrentPage(generation)) return;
+        final fallbackTitle = history?.novelTitle ??
+            (page.ncode == widget.novelId.toLowerCase()
+                ? widget.title
+                : page.ncode);
+        final actualTitle = _viewModel.getNovelTitle(_novelDetails,
+            fallbackTitle: fallbackTitle);
+
         final success = await viewModel.addBookmark(
-          widget.novelId,
+          page.ncode,
           actualTitle,
           currentChapter: _currentChapter,
           scrollPosition: currentScrollPosition,
@@ -992,8 +1061,9 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
           novelData: _novelDetails, // API情報を渡す
         );
 
-        if (mounted && success) {
+        if (_isCurrentPage(generation) && success) {
           await _addToHistory();
+          if (!mounted || !_isCurrentPage(generation)) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(_isSerialNovel
@@ -1006,7 +1076,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
         }
       }
     } catch (e) {
-      print('ブックマーク操作エラー: $e');
+      debugPrint('ブックマーク操作エラー: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1026,94 +1096,62 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
       return await _getCurrentScrollPosition().timeout(
         const Duration(seconds: 3),
         onTimeout: () {
-          print('スクロール位置取得がタイムアウトしました');
-          return _scrollPosition; // 最後に保存された位置を返す
+          debugPrint('スクロール位置取得がタイムアウトしました');
+          return _hasKnownScrollPosition
+              ? _lastSavedScrollPosition
+              : _scrollPosition;
         },
       );
     } catch (e) {
-      print('スクロール位置取得エラー: $e');
-      return _scrollPosition; // 最後に保存された位置を返す
+      debugPrint('スクロール位置取得エラー: $e');
+      return _hasKnownScrollPosition
+          ? _lastSavedScrollPosition
+          : _scrollPosition;
     }
   }
 
   /// 最低限の履歴情報を保存
-  Future<void> _saveMinimumHistory(double scrollPosition) async {
-    try {
-      // 読書履歴のスクロール位置を更新
-      await _viewModel.updateReadingPosition(
-        widget.novelId, 
-        _currentChapter, 
-        scrollPosition
-      );
-      
-      // ブックマーク済みの場合はブックマークの位置も更新
-      if (_viewModel.isBookmarked) {
-        await _viewModel.updateBookmarkPosition(
-          widget.novelId, 
-          _currentChapter, 
-          scrollPosition
-        );
-        print('ブックマーク位置も更新完了');
-      }
-    } catch (e) {
-      print('履歴保存エラー: $e');
-      rethrow; // エラーを上位に伝播
-    }
-  }
-
-  /// フォールバック用の最低限保存
-  Future<void> _saveMinimumHistoryFallback() async {
-    try {
-      // エラー時は現在の章番号だけでも保存
-      await _viewModel.updateReadingPosition(
-        widget.novelId, 
-        _currentChapter, 
-        0.0 // スクロール位置は0として保存
-      );
-      print('フォールバック保存完了: chapter=$_currentChapter');
-    } catch (e) {
-      print('フォールバック保存も失敗: $e');
-    }
+  Future<void> _saveMinimumHistory(double scrollPosition,
+      {NovelUrl? page}) async {
+    final savedPage = page ?? _currentNovelPage;
+    if (savedPage == null) return;
+    _sessionScrollPositions[_positionKey(savedPage)] = scrollPosition;
+    await _viewModel.updateReadingPosition(
+        savedPage.ncode, savedPage.chapter, scrollPosition);
+    await _viewModel.updateBookmarkPosition(
+        savedPage.ncode, savedPage.chapter, scrollPosition);
   }
 
   /// テーマ変更を監視してWebViewのテーマを自動同期
   void _listenToThemeChanges() {
-    final themeProvider = ThemeHelper.of(context, listen: false);
-    if (themeProvider != null) {
-      themeProvider.addListener(_onThemeChanged);
-    }
+    _themeProvider = ThemeHelper.of(context, listen: false);
+    _themeProvider?.addListener(_onThemeChanged);
   }
-  
+
   /// テーマ変更時のコールバック
   void _onThemeChanged() {
     if (!mounted || !isWebViewReady) return;
-    
+
     final themeProvider = ThemeHelper.of(context, listen: false);
     if (themeProvider != null) {
       final colorId = themeProvider.colorId;
-      print('テーマ変更を検知: colorId=$colorId');
-      
+      debugPrint('テーマ変更を検知: colorId=$colorId');
+
       // WebView内のテーマを自動更新
       _setColorScheme(colorId);
     }
   }
-  
+
   /// dispose時の即座の保存処理
   void _executeImmediateSave() {
-    // Future.microtaskを使用して非同期処理を同期的なコンテキストで実行
-    Future.microtask(() async {
-      try {
-        final scrollPosition = await _getCurrentScrollPositionWithTimeout();
-        await _saveMinimumHistory(scrollPosition);
-        print('dispose時の即座保存完了');
-      } catch (e) {
-        print('dispose時の保存エラー: $e');
-        // エラー時はフォールバック保存
-        await _saveMinimumHistoryFallback();
-      }
-    }).catchError((e) {
-      print('dispose時の保存処理で予期しないエラー: $e');
-    });
+    // The platform WebView can already be removed during dispose; use its last
+    // successful sample instead of replacing progress with a failed JS result.
+    if (_hasKnownScrollPosition && _positionSaveFuture == null) {
+      final position = _shouldRestoreScrollPosition && !_scrollRestoreCompleted
+          ? _scrollPosition
+          : _lastSavedScrollPosition;
+      unawaited(_saveMinimumHistory(position));
+    }
   }
 
   /// Webサイトのブックマーク機能を利用してブックマーク追加
@@ -1166,40 +1204,6 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     } catch (e) {
       debugPrint('Error adding bookmark via web: $e');
       rethrow;
-    }
-  }
-
-  /// 文字サイズ調整
-  Future<void> _adjustFontSize({required bool increase}) async {
-    final script = '''
-      (function() {
-        try {
-          const ${increase ? 'increment' : 'decrement'} = document.querySelector('a[name="fontsize_${increase ? 'inc' : 'dec'}"]');
-          if (${increase ? 'increment' : 'decrement'}) {
-            ${increase ? 'increment' : 'decrement'}.click();
-            return true;
-          }
-          
-          // 直接スタイル調整
-          const content = document.querySelector('.p-novel__body') || document.querySelector('body');
-          if (content) {
-            const currentSize = parseFloat(window.getComputedStyle(content).fontSize) || 16;
-            const newSize = ${increase ? 'currentSize + 2' : 'Math.max(currentSize - 2, 10)'};
-            content.style.fontSize = newSize + 'px';
-            return true;
-          }
-          return false;
-        } catch (e) {
-          console.log('文字サイズ調整エラー:', e);
-          return false;
-        }
-      })();
-    ''';
-
-    try {
-      await _controller.runJavaScript(script);
-    } catch (e) {
-      debugPrint('Error adjusting font size: $e');
     }
   }
 
@@ -1271,7 +1275,9 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
           // 直接スタイル調整
           const content = document.querySelector('.p-novel__body') || document.querySelector('body');
           if (content) {
-            const currentHeight = parseFloat(window.getComputedStyle(content).lineHeight) || 1.5;
+            const computed = window.getComputedStyle(content);
+            const fontSize = parseFloat(computed.fontSize) || 16;
+            const currentHeight = parseFloat(computed.lineHeight) / fontSize || 1.5;
             const newHeight = ${increase ? 'Math.min(currentHeight + 0.1, 3.0)' : 'Math.max(currentHeight - 0.1, 1.0)'};
             content.style.lineHeight = newHeight;
             return true;
@@ -1427,33 +1433,24 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
     ''';
 
     try {
-      final result = await _controller.runJavaScriptReturningResult(scrapeScript);
+      final result =
+          await _controller.runJavaScriptReturningResult(scrapeScript);
       final resultStr = result.toString();
-      
+
       if (resultStr.isEmpty) {
         throw Exception('スクレイピング結果が空です');
       }
-      
+
       // JSON文字列をパース
-      final Map<String, dynamic> jsonData = Map<String, dynamic>.from(
-        await compute((String jsonStr) {
-          // JSON文字列の前後のダブルクォーテーションを除去
-          final cleanJson = jsonStr.startsWith('"') && jsonStr.endsWith('"')
-              ? jsonStr.substring(1, jsonStr.length - 1).replaceAll('\\"', '"')
-              : jsonStr;
-          
-          final data = json.decode(cleanJson);
-          return data is Map ? data : <String, dynamic>{};
-        }, resultStr)
-      );
-      
+      final jsonData = _decodeJsonResult(result);
+      if (jsonData.isEmpty) throw Exception('ブックマークデータの形式が不正です');
+
       if (jsonData.containsKey('error')) {
         throw Exception(jsonData['error']);
       }
-      
+
       final bookmarksList = jsonData['bookmarks'] as List? ?? [];
       return bookmarksList.map((e) => Map<String, dynamic>.from(e)).toList();
-      
     } catch (e) {
       debugPrint('ブックマークスクレイピングエラー: $e');
       rethrow;
@@ -1464,13 +1461,15 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   Future<int> _importBookmarksFromScrapedData() async {
     try {
       // 現在のURLがブックマークページかチェック
-      if (_currentUrl == null || !_currentUrl!.contains('syosetu.com/favnovelmain/list/')) {
-        throw Exception('ブックマークページではありません。\nhttps://syosetu.com/favnovelmain/list/ にアクセスしてからインポートしてください。');
+      if (_currentUrl == null ||
+          !_currentUrl!.contains('syosetu.com/favnovelmain/list/')) {
+        throw Exception(
+            'ブックマークページではありません。\nhttps://syosetu.com/favnovelmain/list/ にアクセスしてからインポートしてください。');
       }
 
       // スクレイピング実行
       final scrapedData = await _scrapeBookmarkData();
-      
+
       if (scrapedData.isEmpty) {
         throw Exception('ブックマークデータが見つかりませんでした');
       }
@@ -1489,7 +1488,8 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
           final isSerialNovel = data['isSerialNovel'] as bool? ?? false;
 
           // 既に存在するかチェック
-          final existingBookmark = await _viewModel.getBookmarkByNovelId(novelId);
+          final existingBookmark =
+              await _viewModel.getBookmarkByNovelId(novelId);
           if (existingBookmark != null) {
             skippedCount++;
             continue; // 既に存在する場合はスキップ
@@ -1512,27 +1512,25 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
           await _viewModel.insertBookmark(bookmark);
           importedCount++;
 
-          print('ブックマークインポート完了: $novelTitle (ID: $novelId)');
-
+          debugPrint('ブックマークインポート完了: $novelTitle (ID: $novelId)');
         } catch (itemError) {
           final title = data['novelTitle'] ?? 'Unknown';
           errors.add('$title: ${itemError.toString()}');
-          print('個別アイテムのインポートエラー: $itemError');
+          debugPrint('個別アイテムのインポートエラー: $itemError');
         }
       }
 
       // 結果をログ出力
-      print('ブックマークインポート結果:');
-      print('  インポート成功: $importedCount件');
-      print('  スキップ: $skippedCount件');
-      print('  エラー: ${errors.length}件');
+      debugPrint('ブックマークインポート結果:');
+      debugPrint('  インポート成功: $importedCount件');
+      debugPrint('  スキップ: $skippedCount件');
+      debugPrint('  エラー: ${errors.length}件');
 
       if (errors.isNotEmpty) {
-        print('  エラー詳細: ${errors.join(', ')}');
+        debugPrint('  エラー詳細: ${errors.join(', ')}');
       }
 
       return importedCount;
-
     } catch (e) {
       debugPrint('ブックマークインポートエラー: $e');
       rethrow;
@@ -1541,17 +1539,17 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
 
   /// ブックマークインポートのハンドラー
   Future<void> _handleBookmarkImport() async {
+    DialogRoute<void>? loadingRoute;
+    final navigator = Navigator.of(context, rootNavigator: true);
     try {
       // 確認ダイアログを表示
       final shouldImport = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('ブックマークインポート'),
-          content: const Text(
-            'このページからブックマーク情報を読み取り、アプリ内のブックマークに追加します。\n\n'
-            '既に登録済みのブックマークはスキップされます。\n\n'
-            '実行しますか？'
-          ),
+          content: const Text('このページからブックマーク情報を読み取り、アプリ内のブックマークに追加します。\n\n'
+              '既に登録済みのブックマークはスキップされます。\n\n'
+              '実行しますか？'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -1565,17 +1563,17 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
         ),
       );
 
-      if (shouldImport != true) return;
+      if (shouldImport != true || !mounted) return;
 
-      // 読み込み中ダイアログを表示
-      showDialog(
+      // Keep the route itself so an interrupted import cannot pop the reader.
+      loadingRoute = DialogRoute<void>(
         context: context,
         barrierDismissible: false,
-        builder: (context) => AlertDialog(
+        builder: (context) => const AlertDialog(
           content: Row(
             children: [
-              const CircularProgressIndicator(),
-              const SizedBox(width: 16),
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
               Expanded(
                 child: Text(
                   'ブックマークを読み込み中...\n\n'
@@ -1588,11 +1586,13 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
         ),
       );
 
+      unawaited(navigator.push(loadingRoute));
+
       // インポート実行
       final importedCount = await _importBookmarksFromScrapedData();
 
-      // ダイアログを閉じる
-      Navigator.pop(context);
+      if (!mounted) return;
+      if (loadingRoute.isActive) navigator.removeRoute(loadingRoute);
 
       // 結果ダイアログを表示
       showDialog(
@@ -1623,22 +1623,21 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
           ),
         );
       }
-
     } catch (e) {
-      // エラー時の処理
-      Navigator.pop(context); // ローディングダイアログを閉じる
+      if (!mounted) return;
+      if (loadingRoute != null && loadingRoute.isActive) {
+        navigator.removeRoute(loadingRoute);
+      }
 
-      print('ブックマークインポートエラー: $e');
+      debugPrint('ブックマークインポートエラー: $e');
 
       // エラーダイアログを表示
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('エラー'),
-          content: Text(
-            'ブックマークのインポートに失敗しました。\n\n'
-            'エラー詳細: $e'
-          ),
+          content: Text('ブックマークのインポートに失敗しました。\n\n'
+              'エラー詳細: $e'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -1661,10 +1660,10 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
 
   void _showMoreOptions(WebViewViewModel viewModel) {
     // API情報があればそれを使用、なければフォールバック値を使用
-    final totalChapters = _novelDetails != null 
-        ? _viewModel.getTotalChapters(_novelDetails!) 
+    final totalChapters = _novelDetails != null
+        ? _viewModel.getTotalChapters(_novelDetails!)
         : null;
-    
+
     showModalBottomSheet(
       context: context,
       builder: (context) {
@@ -1708,17 +1707,21 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                 ListTile(
                   leading: const Icon(Icons.skip_previous),
                   title: const Text('前の章へ'),
-                  onTap: _currentChapter > 1 ? () {
-                    Navigator.pop(context);
-                    final prevChapterUrl = _buildNovelUrl(_currentChapter - 1);
-                    _controller.loadRequest(Uri.parse(prevChapterUrl));
-                  } : null,
+                  onTap: _currentChapter > 1
+                      ? () {
+                          Navigator.pop(context);
+                          final prevChapterUrl =
+                              _buildNovelUrl(_currentChapter - 1);
+                          _controller.loadRequest(Uri.parse(prevChapterUrl));
+                        }
+                      : null,
                 ),
                 ListTile(
                   leading: const Icon(Icons.skip_next),
-                  title: Text(totalChapters != null && _currentChapter >= totalChapters
-                      ? '次の章へ (最新話まで読了済み)'
-                      : '次の章へ'),
+                  title: Text(
+                      totalChapters != null && _currentChapter >= totalChapters
+                          ? '次の章へ (最新話まで読了済み)'
+                          : '次の章へ'),
                   onTap: () {
                     Navigator.pop(context);
                     final nextChapterUrl = _buildNovelUrl(_currentChapter + 1);
@@ -1748,7 +1751,8 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                 onTap: () {
                   Navigator.pop(context);
                   // 現在のページのURLを共有
-                  final shareUrl = _currentUrl ?? _buildNovelUrl(_currentChapter);
+                  final shareUrl =
+                      _currentUrl ?? _buildNovelUrl(_currentChapter);
                   // TODO: Share functionality with shareUrl
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('URL: $shareUrl')),
@@ -1784,12 +1788,16 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                 _buildInfoRow('ジャンル', _viewModel.getNovelGenre(_novelDetails!)),
                 _buildInfoRow('種類', _isSerialNovel ? '連載小説' : '短編小説'),
                 if (_isSerialNovel)
-                  _buildInfoRow('総話数', '${_viewModel.getTotalChapters(_novelDetails!)}話'),
+                  _buildInfoRow(
+                      '総話数', '${_viewModel.getTotalChapters(_novelDetails!)}話'),
                 _buildInfoRow('文字数', '${_novelDetails!['length'] ?? 'N/A'}文字'),
                 _buildInfoRow('読了時間', '${_novelDetails!['time'] ?? 'N/A'}分'),
-                _buildInfoRow('ブックマーク数', '${_novelDetails!['fav_novel_cnt'] ?? 'N/A'}件'),
-                _buildInfoRow('評価ポイント', '${_novelDetails!['global_point'] ?? 'N/A'}pt'),
-                if (_novelDetails!['keyword'] != null && _novelDetails!['keyword'].toString().isNotEmpty)
+                _buildInfoRow(
+                    'ブックマーク数', '${_novelDetails!['fav_novel_cnt'] ?? 'N/A'}件'),
+                _buildInfoRow(
+                    '評価ポイント', '${_novelDetails!['global_point'] ?? 'N/A'}pt'),
+                if (_novelDetails!['keyword'] != null &&
+                    _novelDetails!['keyword'].toString().isNotEmpty)
                   _buildInfoRow('キーワード', _novelDetails!['keyword'].toString()),
                 const SizedBox(height: 16),
                 if (_novelDetails!['story'] != null)
@@ -1838,6 +1846,10 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   }
 
   void _showWebViewSettings(WebViewViewModel viewModel) {
+    final screenContext = context;
+    Timer? readinessTimer;
+    bool isSheetActive = true;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1845,6 +1857,21 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
         double tempFontSize = _fontSize;
         return StatefulBuilder(
           builder: (context, setState) {
+            readinessTimer ??= Timer.periodic(const Duration(milliseconds: 500),
+                (timer) async {
+              if (!isSheetActive || !mounted) {
+                timer.cancel();
+                return;
+              }
+              if (!isWebViewReady) {
+                await _testJavaScriptExecution();
+                if (mounted && isSheetActive) {
+                  setState(() {});
+                }
+              } else {
+                timer.cancel();
+              }
+            });
             return SafeArea(
               child: Container(
                 padding: const EdgeInsets.all(16),
@@ -1853,13 +1880,16 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                   children: [
                     const Text(
                       '表示設定',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                     Container(
                       margin: const EdgeInsets.symmetric(vertical: 8),
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: isWebViewReady ? Colors.green.withOpacity(0.1) : Colors.orange.withOpacity(0.1),
+                        color: isWebViewReady
+                            ? Colors.green.withValues(alpha: 0.1)
+                            : Colors.orange.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
                           color: isWebViewReady ? Colors.green : Colors.orange,
@@ -1869,25 +1899,29 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                         children: [
                           Icon(
                             isWebViewReady ? Icons.check_circle : Icons.warning,
-                            color: isWebViewReady ? Colors.green : Colors.orange,
+                            color:
+                                isWebViewReady ? Colors.green : Colors.orange,
                             size: 16,
                           ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               isWebViewReady
-                                ? 'WebView準備完了'
-                                : 'WebView準備中... (試行: $_initializationAttempts/$maxInitializationAttempts)',
+                                  ? 'WebView準備完了'
+                                  : 'WebView準備中... (試行: $_initializationAttempts/$maxInitializationAttempts)',
                               style: TextStyle(
                                 fontSize: 12,
-                                color: isWebViewReady ? Colors.green : Colors.orange,
+                                color: isWebViewReady
+                                    ? Colors.green
+                                    : Colors.orange,
                               ),
                             ),
                           ),
                           if (!isWebViewReady)
                             TextButton(
                               onPressed: _manualInitializationCheck,
-                              child: const Text('再確認', style: TextStyle(fontSize: 12)),
+                              child: const Text('再確認',
+                                  style: TextStyle(fontSize: 12)),
                             ),
                         ],
                       ),
@@ -1921,48 +1955,52 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                     ListTile(
                       leading: const Icon(Icons.brightness_6),
                       title: const Text('ライトモード'),
-                      subtitle: Text(isWebViewReady
-                          ? '明るい背景色に設定'
-                          : 'WebView準備完了後に使用可能'),
+                      subtitle: Text(
+                          isWebViewReady ? '明るい背景色に設定' : 'WebView準備完了後に使用可能'),
                       enabled: isWebViewReady,
-                      onTap: isWebViewReady ? () async {
-                        Navigator.pop(context);
-                        // WebView内のテーマを変更
-                        _setColorScheme(1); // color1 = ライトモード
-                          
-                          // アプリ全体のテーマも変更
-                          await ThemeHelper.setThemeMode(
-                            context,
-                            AppThemeMode.light,
-                          );
-                          
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('ライトモードに変更しました')),
-                          );
-                      } : null,
+                      onTap: isWebViewReady
+                          ? () async {
+                              Navigator.pop(context);
+                              // WebView内のテーマを変更
+                              _setColorScheme(1); // color1 = ライトモード
+
+                              // アプリ全体のテーマも変更
+                              await ThemeHelper.setThemeMode(
+                                screenContext,
+                                AppThemeMode.light,
+                              );
+
+                              if (!screenContext.mounted) return;
+                              ScaffoldMessenger.of(screenContext).showSnackBar(
+                                const SnackBar(content: Text('ライトモードに変更しました')),
+                              );
+                            }
+                          : null,
                     ),
                     ListTile(
                       leading: const Icon(Icons.brightness_2),
                       title: const Text('ダークモード'),
-                      subtitle: Text(isWebViewReady
-                          ? '暗い背景色に設定'
-                          : 'WebView準備完了後に使用可能'),
+                      subtitle: Text(
+                          isWebViewReady ? '暗い背景色に設定' : 'WebView準備完了後に使用可能'),
                       enabled: isWebViewReady,
-                      onTap: isWebViewReady ? () async {
-                        Navigator.pop(context);
-                        // WebView内のテーマを変更
-                        _setColorScheme(2); // color2 = ダークモード
-                          
-                          // アプリ全体のテーマも変更
-                          await ThemeHelper.setThemeMode(
-                            context,
-                            AppThemeMode.dark,
-                          );
-                          
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('ダークモードに変更しました')),
-                          );
-                      } : null,
+                      onTap: isWebViewReady
+                          ? () async {
+                              Navigator.pop(context);
+                              // WebView内のテーマを変更
+                              _setColorScheme(2); // color2 = ダークモード
+
+                              // アプリ全体のテーマも変更
+                              await ThemeHelper.setThemeMode(
+                                screenContext,
+                                AppThemeMode.dark,
+                              );
+
+                              if (!screenContext.mounted) return;
+                              ScaffoldMessenger.of(screenContext).showSnackBar(
+                                const SnackBar(content: Text('ダークモードに変更しました')),
+                              );
+                            }
+                          : null,
                     ),
                     ListTile(
                       leading: const Icon(Icons.line_weight),
@@ -1978,7 +2016,8 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                           );
                         } else {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('WebViewの読み込みが完了していません')),
+                            const SnackBar(
+                                content: Text('WebViewの読み込みが完了していません')),
                           );
                         }
                       },
@@ -1997,7 +2036,8 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                           );
                         } else {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('WebViewの読み込みが完了していません')),
+                            const SnackBar(
+                                content: Text('WebViewの読み込みが完了していません')),
                           );
                         }
                       },
@@ -2016,7 +2056,8 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                           );
                         } else {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('WebViewの読み込みが完了していません')),
+                            const SnackBar(
+                                content: Text('WebViewの読み込みが完了していません')),
                           );
                         }
                       },
@@ -2025,12 +2066,15 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                     ListTile(
                       leading: const Icon(Icons.bookmark_add),
                       title: const Text('ブックマークインポート'),
-                      subtitle: Text(
-                        _currentUrl != null && _currentUrl!.contains('syosetu.com/favnovelmain/list/')
-                            ? 'このページからブックマークをインポート'
-                            : 'ブックマークページでのみ利用可能'
-                      ),
-                      enabled: isWebViewReady && _currentUrl != null && _currentUrl!.contains('syosetu.com/favnovelmain/list/'),
+                      subtitle: Text(_currentUrl != null &&
+                              _currentUrl!
+                                  .contains('syosetu.com/favnovelmain/list/')
+                          ? 'このページからブックマークをインポート'
+                          : 'ブックマークページでのみ利用可能'),
+                      enabled: isWebViewReady &&
+                          _currentUrl != null &&
+                          _currentUrl!
+                              .contains('syosetu.com/favnovelmain/list/'),
                       onTap: () {
                         Navigator.pop(context);
                         _handleBookmarkImport();
@@ -2043,6 +2087,9 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
           },
         );
       },
-    );
+    ).whenComplete(() {
+      isSheetActive = false;
+      readinessTimer?.cancel();
+    });
   }
 }

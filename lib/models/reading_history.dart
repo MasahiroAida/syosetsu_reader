@@ -34,6 +34,9 @@ class ReadingHistory extends HiveObject {
   @HiveField(9)
   bool isSerialNovel;
 
+  @HiveField(10)
+  DateTime? lastUpdate;
+
   ReadingHistory({
     required this.id,
     required this.novelId,
@@ -45,6 +48,7 @@ class ReadingHistory extends HiveObject {
     required this.url,
     this.scrollPosition,
     this.isSerialNovel = false,
+    this.lastUpdate,
   });
 
   int get unreadChapters =>
